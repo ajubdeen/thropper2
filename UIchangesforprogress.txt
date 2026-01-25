@@ -1,0 +1,214 @@
+{
+  "type": "historical_wisdom",
+  "data": {
+    "id": "approached_priests_first",
+    "insight": "In ancient Egypt, priests controlled vast wealth and knowledge. Approaching the temple before secular authorities showed understanding of where real power lay.",
+    "narrative_hook": "The priests remembered how you came to them first, recognizing their authority."
+  },
+  "timestamp": "2025-01-23T..."
+}
+```
+
+**Field Definitions:**
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `id` | string | Unique identifier for this wisdom path |
+| `insight` | string | The historical fact/lesson (educational content, 1-2 sentences) |
+| `narrative_hook` | string | Player-facing poetic summary (used in endings, can be shown here too) |
+
+---
+
+## Frontend Implementation Guide
+
+### Component 1: Journey Progress Indicator (Persistent UI)
+
+**Purpose:** Always-visible indicator showing the player's overall progress and anchor status.
+
+**Location:** Suggest placing in a collapsible sidebar, bottom status bar, or as an overlay accessible via a button.
+
+**Design Requirements:**
+
+1. **Journey Phase Display** - The primary "how am I doing" indicator
+```
+   Journey: Building Roots 🌱
+```
+   
+   | Phase | Suggested Icon | Color | Description |
+   |-------|----------------|-------|-------------|
+   | wandering | 🧭 | Gray | "You're finding your way" |
+   | finding_footing | 👣 | Light blue | "Something is beginning" |
+   | building_roots | 🌱 | Green | "You're making progress" |
+   | approaching_home | 🏠 | Gold | "Home is within reach" |
+   | home | ✨ | Bright gold | "You could stay forever" |
+
+2. **Anchor Status Display** - Three compact indicators for belonging/legacy/freedom
+
+   **Option A: Minimal (icons + level indicator)**
+```
+   ❤️ ●●○○○○  Legacy 📜 ●○○○○○  Freedom 🦅 ●●●○○○
+      emerging           none              growing
+```
+   
+   **Option B: Compact bars**
+```
+   [Belonging ❤️ ] ██░░░░ emerging ↑
+   [Legacy    📜 ] ░░░░░░ none     —
+   [Freedom   🦅 ] ████░░ growing  ↓
+```
+   
+   Level-to-segment mapping (6 segments for 6 levels):
+   | Level | Filled Segments |
+   |-------|-----------------|
+   | none | 0 |
+   | emerging | 1 |
+   | growing | 2 |
+   | strong | 3 |
+   | arrived | 4 |
+   | mastery | 5-6 (full, maybe glowing) |
+
+3. **Trend Indicators**
+   - `rising` → ↑ or green up arrow
+   - `stable` → — or no indicator
+   - `falling` → ↓ or red down arrow
+
+4. **Dominant Anchor Highlight**
+   - Subtly highlight or badge the dominant anchor
+   - Could show: "Your path leans toward Freedom"
+
+5. **"Can Stay" Indicator**
+   - When `can_stay: true`, show a special indicator: "✨ You could make this home"
+   - This is the key unlock moment - make it feel significant
+
+**Interaction:**
+- Tapping/hovering on an anchor could show a tooltip with its meaning:
+  - Belonging: "Community, acceptance, found family"
+  - Legacy: "Lasting impact, teaching, building"
+  - Freedom: "Autonomy, self-determination, independence"
+
+**Mobile Considerations:**
+- Default to collapsed/minimal view
+- Expandable on tap
+- Journey phase always visible even when collapsed
+
+---
+
+### Component 2: Milestone Toast/Banner (Event-Driven)
+
+**Purpose:** Celebrate when the player crosses an anchor level threshold.
+
+**Trigger:** `progress_milestone` message received
+
+**Design Requirements:**
+
+1. **Appearance:** Non-intrusive toast or banner that appears after narrative text
+   
+2. **Duration:** 4-6 seconds, or until dismissed
+
+3. **Visual Design:**
+```
+   ┌─────────────────────────────────────────────┐
+   │ ❤️ BELONGING                                │
+   │                                             │
+   │ "You sense the first threads of             │
+   │  connection forming."                       │
+   │                                     [none → emerging] │
+   └─────────────────────────────────────────────┘
+```
+
+4. **Anchor-Specific Theming:**
+   | Anchor | Icon | Color Theme |
+   |--------|------|-------------|
+   | Belonging | ❤️ or 🤝 | Warm red/pink |
+   | Legacy | 📜 or 🏛️ | Gold/amber |
+   | Freedom | 🦅 or 🔓 | Blue/teal |
+
+5. **Level Progression Visualization:**
+   - Show the transition: `none → emerging`
+   - Or a simple progress indicator filling up
+
+6. **Animation:**
+   - Slide in from bottom or fade in
+   - Subtle glow or pulse effect
+   - Don't block narrative text
+
+7. **Sound (optional):**
+   - Subtle chime or tone
+   - Different pitch for higher levels
+
+**Mobile:** 
+- Bottom toast works well
+- Swipe to dismiss
+
+---
+
+### Component 3: Historical Wisdom Card (Event-Driven)
+
+**Purpose:** Reward and educate when player makes historically accurate choices.
+
+**Trigger:** `historical_wisdom` message received
+
+**Design Requirements:**
+
+1. **Appearance:** Distinct from milestone - this is educational content
+```
+   ┌─────────────────────────────────────────────┐
+   │ 📜 HISTORICAL INSIGHT                       │
+   │─────────────────────────────────────────────│
+   │                                             │
+   │ "In ancient Egypt, priests controlled vast  │
+   │  wealth and knowledge. Approaching the      │
+   │  temple before secular authorities showed   │
+   │  understanding of where real power lay."    │
+   │                                             │
+   │                        [Tap to dismiss]     │
+   └─────────────────────────────────────────────┘
+```
+
+2. **Visual Distinction from Milestones:**
+   - Use a "scroll" or "book" aesthetic
+   - Parchment/sepia tones
+   - Different icon (📜, 🎓, 💡)
+
+3. **Content Display:**
+   - Show the `insight` text (the historical fact)
+   - Optionally show `narrative_hook` as a subtitle or on hover
+   - Consider a small "Learn more" link (future enhancement)
+
+4. **Timing:**
+   - Appears after narrative + milestone (if both occur)
+   - Stays longer than milestone (6-8 seconds) since it's educational
+   - Or requires tap to dismiss
+
+5. **Collectible Feel (optional enhancement):**
+   - "Wisdom Collected: 3/12 in this era"
+   - Creates completionist motivation
+
+**Mobile:**
+- Modal or bottom sheet works well
+- Tap anywhere to dismiss
+
+---
+
+### Component 4: Progress Summary on Game Resume
+
+**Purpose:** When resuming a saved game, remind player where they stand.
+
+**Trigger:** Game loaded from save
+
+**Design:**
+```
+┌─────────────────────────────────────────────────┐
+│ WELCOME BACK                                    │
+│                                                 │
+│ You are Marcus, in Ancient Rome (47 BCE)        │
+│ Time here: about 2 years                        │
+│                                                 │
+│ Your Journey: Building Roots 🌱                 │
+│                                                 │
+│ ❤️ Belonging: growing (rising)                  │
+│ 📜 Legacy: emerging (stable)                    │
+│ 🦅 Freedom: strong (stable)                     │
+│                                                 │
+│                              [Continue →]       │
+└─────────────────────────────────────────────────┘

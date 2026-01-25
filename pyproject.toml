@@ -1,0 +1,20 @@
+[project]
+name = "anachron-v2"
+version = "2.0.0"
+description = "Time-travel survival text adventure game - Python-only architecture"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.1.0",
+    "flask-socketio>=5.5.0",
+    "simple-websocket>=1.0.0",
+    "gevent>=24.0.0",
+    "gevent-websocket>=0.10.1",
+    "psycopg2-binary>=2.9.9",
+    "anthropic>=0.40.0",
+    "requests>=2.32.0",
+    "gunicorn>=23.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

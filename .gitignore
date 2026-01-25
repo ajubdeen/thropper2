@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
+
+# Environment variables (IMPORTANT: never commit these)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Node.js (frontend)
+frontend/node_modules/
+frontend/.npm
+frontend/.pnp.*
+
+# Build artifacts
+frontend/dist/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local saves and data (development only)
+game/saves/
+game/*.json
+!game/eras.json
+
+# Database
+*.db
+*.sqlite
+
+# Development artifacts
+attached_assets/
+*.zip
