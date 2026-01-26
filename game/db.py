@@ -38,6 +38,42 @@ def get_db():
 class Storage:
     """Database storage operations."""
 
+    # ==================== Users ====================
+
+    def upsert_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert or update a user on OAuth login."""
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO users (id, email, first_name, last_name, profile_image_url, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        email = EXCLUDED.email,
+                        first_name = EXCLUDED.first_name,
+                        last_name = EXCLUDED.last_name,
+                        profile_image_url = EXCLUDED.profile_image_url,
+                        updated_at = NOW()
+                    RETURNING *
+                """, (
+                    user_data['id'],
+                    user_data.get('email'),
+                    user_data.get('first_name'),
+                    user_data.get('last_name'),
+                    user_data.get('profile_image_url')
+                ))
+                return dict(cur.fetchone())
+
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch user profile by ID."""
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM users WHERE id = %s LIMIT 1",
+                    (user_id,)
+                )
+                result = cur.fetchone()
+                return dict(result) if result else None
+
     # ==================== Game Saves ====================
 
     def save_game(self, user_id: str, game_id: str, player_name: Optional[str],

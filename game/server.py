@@ -18,6 +18,7 @@ import os
 import sys
 import re
 import logging
+from datetime import timedelta
 from flask import Flask, request, send_from_directory
 from flask_socketio import SocketIO, emit as raw_emit
 
@@ -52,13 +53,21 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='')
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET') or os.urandom(24).hex()
 
+# Session configuration - use Flask's secure signed cookie sessions
+# Sessions are cryptographically signed with SECRET_KEY
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('RAILWAY_ENVIRONMENT') is not None  # HTTPS in production
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+
 # Register REST API routes
 from routes import api
 app.register_blueprint(api)
 
-# Register auth routes
-from auth import auth
+# Register auth routes and initialize OAuth
+from auth import auth, init_oauth
 app.register_blueprint(auth)
+init_oauth(app)
 
 socketio = SocketIO(
     app,
