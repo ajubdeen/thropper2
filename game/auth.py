@@ -91,7 +91,10 @@ def login():
         return redirect('/')
 
     # Build the callback URL
+    # Force HTTPS in production (Railway terminates SSL at proxy)
     redirect_uri = url_for('auth.callback', _external=True)
+    if redirect_uri.startswith('http://') and 'railway.app' in redirect_uri:
+        redirect_uri = redirect_uri.replace('http://', 'https://', 1)
     logger.info(f"Starting OAuth flow, redirect_uri: {redirect_uri}")
 
     return oauth.google.authorize_redirect(redirect_uri)
