@@ -155,6 +155,15 @@ const anchorConfig: Record<string, { icon: string; color: string; bgColor: strin
   freedom: { icon: "🦅", color: "text-cyan-400", bgColor: "bg-cyan-500", label: "Freedom" },
 };
 
+// Wisdom prefix variations for historically prudent choices
+const WISDOM_PREFIXES = [
+  "That was a historically astute decision.",
+  "A wise choice for this era.",
+  "You understood how things worked here.",
+  "That shows real historical awareness.",
+  "A prudent decision for the times.",
+];
+
 export default function GamePage() {
   const { user, isLoading: authLoading, isAuthenticated, logout } = useAuth();
   const socketRef = useRef<Socket | null>(null);
@@ -187,9 +196,9 @@ export default function GamePage() {
 
   // Journey Progress State
   const [journeyProgress, setJourneyProgress] = useState<JourneyProgress | null>(null);
-  const [showProgressPanel, setShowProgressPanel] = useState(false);
   const [currentMilestone, setCurrentMilestone] = useState<ProgressMilestone | null>(null);
   const [currentWisdom, setCurrentWisdom] = useState<HistoricalWisdom | null>(null);
+  const [wisdomPrefix, setWisdomPrefix] = useState("");
   const [showResumeProgress, setShowResumeProgress] = useState(false);
   const [resumeProgressData, setResumeProgressData] = useState<{ era: EraInfo | null; progress: JourneyProgress | null } | null>(null);
 
@@ -383,8 +392,9 @@ export default function GamePage() {
 
       case "historical_wisdom":
         setCurrentWisdom(msg.data);
-        // Auto-dismiss after 8 seconds (longer for educational content)
-        setTimeout(() => setCurrentWisdom(null), 8000);
+        // Select random prefix for variety
+        setWisdomPrefix(WISDOM_PREFIXES[Math.floor(Math.random() * WISDOM_PREFIXES.length)]);
+        // No auto-dismiss - user must tap to close
         break;
     }
   }, []);
@@ -527,17 +537,14 @@ export default function GamePage() {
     );
   };
 
-  // Journey Progress Panel Component
+  // Journey Progress Panel Component - Always expanded
   const JourneyProgressPanel = () => {
     if (!journeyProgress) return null;
     const phaseConfig = journeyPhaseConfig[journeyProgress.journey_phase];
 
     return (
-      <div className={`transition-all duration-300 ${showProgressPanel ? 'max-h-64' : 'max-h-10'} overflow-hidden`}>
-        <button
-          onClick={() => setShowProgressPanel(!showProgressPanel)}
-          className="w-full flex items-center justify-between px-3 py-2 bg-gray-900/80 border border-gray-700/50 rounded-lg hover:bg-gray-800/80 transition-colors"
-        >
+      <div className="transition-all duration-300">
+        <div className="w-full flex items-center justify-between px-3 py-2 bg-gray-900/80 border border-gray-700/50 rounded-t-lg">
           <div className="flex items-center gap-2">
             <span>{phaseConfig.icon}</span>
             <span className={`text-sm font-medium ${phaseConfig.color}`}>
@@ -547,22 +554,19 @@ export default function GamePage() {
           {journeyProgress.can_stay && (
             <span className="text-xs text-amber-400 animate-pulse">✨ You can choose to stay here permanently</span>
           )}
-          <span className="text-gray-500 text-xs">{showProgressPanel ? '▼' : '▶'}</span>
-        </button>
+        </div>
 
-        {showProgressPanel && (
-          <div className="mt-2 p-3 bg-gray-900/60 border border-gray-700/30 rounded-lg space-y-2">
-            <p className="text-xs text-gray-400 mb-3">{phaseConfig.description}</p>
-            <AnchorProgressBar anchor="belonging" status={journeyProgress.belonging} />
-            <AnchorProgressBar anchor="legacy" status={journeyProgress.legacy} />
-            <AnchorProgressBar anchor="freedom" status={journeyProgress.freedom} />
-            {journeyProgress.dominant && (
-              <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-700">
-                Your path leans toward <span className={anchorConfig[journeyProgress.dominant]?.color}>{journeyProgress.dominant}</span>
-              </p>
-            )}
-          </div>
-        )}
+        <div className="p-3 bg-gray-900/60 border border-t-0 border-gray-700/30 rounded-b-lg space-y-2">
+          <p className="text-xs text-gray-400 mb-3">{phaseConfig.description}</p>
+          <AnchorProgressBar anchor="belonging" status={journeyProgress.belonging} />
+          <AnchorProgressBar anchor="legacy" status={journeyProgress.legacy} />
+          <AnchorProgressBar anchor="freedom" status={journeyProgress.freedom} />
+          {journeyProgress.dominant && (
+            <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-700">
+              Your path leans toward <span className={anchorConfig[journeyProgress.dominant]?.color}>{journeyProgress.dominant}</span>
+            </p>
+          )}
+        </div>
       </div>
     );
   };
@@ -588,7 +592,7 @@ export default function GamePage() {
     );
   };
 
-  // Historical Wisdom Card Component
+  // Historical Wisdom Card Component - with shimmer effect
   const WisdomCard = () => {
     if (!currentWisdom) return null;
 
@@ -597,12 +601,14 @@ export default function GamePage() {
         className="fixed bottom-20 left-4 right-4 z-50 animate-in slide-in-from-bottom duration-300"
         onClick={() => setCurrentWisdom(null)}
       >
-        <div className="max-w-md mx-auto p-4 rounded-lg bg-amber-950/95 border border-amber-700/50 shadow-lg">
+        <div className="max-w-md mx-auto p-4 rounded-lg border border-amber-600/60 shadow-lg shadow-amber-900/30 overflow-hidden relative animate-shimmer bg-gradient-to-r from-amber-950/95 via-amber-900/95 to-amber-950/95 bg-[length:200%_100%]">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-xl">📜</span>
-            <span className="font-bold text-amber-400 uppercase text-sm">Historical Insight</span>
+            <span className="text-xl">✨</span>
+            <span className="font-bold text-amber-400 uppercase text-sm tracking-wide">Historically Astute</span>
           </div>
-          <p className="text-amber-100 text-sm leading-relaxed">{currentWisdom.insight}</p>
+          <p className="text-amber-100 text-sm leading-relaxed">
+            {wisdomPrefix} {currentWisdom.insight}
+          </p>
           <p className="text-xs text-amber-600 mt-3 italic">Tap to dismiss</p>
         </div>
       </div>
