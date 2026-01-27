@@ -1,187 +1,175 @@
 """
 Anachron - Database Storage Module
 
-Storage adapters that call the Express API for persistence instead of JSON files.
+Storage adapters that use direct database access via db.py.
 """
 
-import os
 import json
-import requests
 from typing import List, Dict, Optional
 from datetime import datetime
-from abc import ABC, abstractmethod
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:5000")
+from db import storage
 
 
 class DatabaseSaveManager:
-    """Manages saving and loading game states via Express API"""
-    
-    def __init__(self, api_base: str = None):
-        self.api_base = api_base or API_BASE_URL
-    
+    """Manages saving and loading game states via direct database access"""
+
+    def __init__(self):
+        pass
+
     def save_game(self, user_id: str, game_id: str, state) -> bool:
         """
-        Save game state to database via API.
+        Save game state to database.
         Returns True if successful.
         """
         try:
             save_data = state.to_save_dict()
-            
-            response = requests.post(
-                f"{self.api_base}/api/saves",
-                json={
-                    "userId": user_id,
-                    "gameId": game_id,
-                    "playerName": save_data.get("player_name"),
-                    "currentEra": state.current_era.era_name if state.current_era else None,
-                    "phase": save_data.get("phase"),
-                    "state": save_data,
-                },
-                timeout=10
+
+            storage.save_game(
+                user_id=user_id,
+                game_id=game_id,
+                player_name=save_data.get("player_name"),
+                current_era=state.current_era.era_name if state.current_era else None,
+                phase=save_data.get("phase"),
+                state=save_data,
             )
-            return response.status_code == 200
+            return True
         except Exception as e:
             print(f"Database save error: {e}")
             return False
-    
+
     def load_game(self, user_id: str, game_id: str):
         """
-        Load game state from database via API.
+        Load game state from database.
         Returns GameState or None if not found.
         """
         try:
-            response = requests.get(
-                f"{self.api_base}/api/saves/{user_id}/{game_id}",
-                timeout=10
-            )
-            if response.status_code == 404:
+            data = storage.load_game(user_id, game_id)
+            if not data:
                 return None
-            if response.status_code != 200:
-                return None
-            
-            data = response.json()
+
             save_data = data.get("state", data)
-            
+            # Handle JSON string if needed
+            if isinstance(save_data, str):
+                save_data = json.loads(save_data)
+
             from game_state import GameState
             return GameState.from_save_dict(save_data)
         except Exception as e:
             print(f"Database load error: {e}")
             return None
-    
+
     def delete_game(self, user_id: str, game_id: str) -> bool:
         """Delete a saved game"""
         try:
-            response = requests.delete(
-                f"{self.api_base}/api/saves/{user_id}/{game_id}",
-                timeout=10
-            )
-            return response.status_code == 200
+            return storage.delete_game(user_id, game_id)
         except Exception:
             return False
-    
+
     def list_user_games(self, user_id: str) -> List[Dict]:
         """List all saved games for a user"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/saves/{user_id}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return []
-            return response.json()
-        except Exception:
+            games = storage.list_user_games(user_id)
+            # Convert to expected format
+            return [{
+                "game_id": g.get("game_id"),
+                "player_name": g.get("player_name"),
+                "current_era": g.get("current_era"),
+                "phase": g.get("phase"),
+                "total_turns": g.get("state", {}).get("total_turns", 0) if isinstance(g.get("state"), dict) else 0,
+                "saved_at": g.get("saved_at").isoformat() if g.get("saved_at") else None,
+            } for g in games]
+        except Exception as e:
+            print(f"List games error: {e}")
             return []
 
 
 class DatabaseLeaderboardStorage:
-    """Database storage for leaderboard via Express API"""
-    
-    def __init__(self, api_base: str = None):
-        self.api_base = api_base or API_BASE_URL
-    
+    """Database storage for leaderboard via direct database access"""
+
+    def __init__(self):
+        pass
+
     def load_scores(self) -> List[dict]:
         """Load all scores from database"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/leaderboard?limit=100",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return []
-            return response.json()
+            scores = storage.get_top_scores(100)
+            return [self._format_score(s) for s in scores]
         except Exception:
             return []
-    
+
     def save_scores(self, scores: List[dict]):
         """Not needed for database storage - scores are saved individually"""
         pass
-    
+
     def add_score(self, score: dict) -> int:
         """Add a score and return its rank (1-indexed)"""
         try:
-            response = requests.post(
-                f"{self.api_base}/api/leaderboard",
-                json={
-                    "userId": score.get("user_id", ""),
-                    "gameId": score.get("game_id", ""),
-                    "playerName": score.get("player_name", "Unknown"),
-                    "turnsSurvived": score.get("turns_survived", 0),
-                    "erasVisited": score.get("eras_visited", 0),
-                    "belongingScore": score.get("belonging", 0),
-                    "legacyScore": score.get("legacy", 0),
-                    "freedomScore": score.get("freedom", 0),
-                    "totalScore": score.get("total", 0),
-                    "endingType": score.get("ending_type", ""),
-                    "finalEra": score.get("final_era", ""),
-                    "blurb": score.get("blurb", ""),
-                    "endingNarrative": score.get("ending_narrative", ""),
-                },
-                timeout=10
-            )
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("rank", 1)
-            return 1
+            entry = {
+                "userId": score.get("user_id", ""),
+                "gameId": score.get("game_id", ""),
+                "playerName": score.get("player_name", "Unknown"),
+                "turnsSurvived": score.get("turns_survived", 0),
+                "erasVisited": score.get("eras_visited", 0),
+                "belongingScore": score.get("belonging", 0),
+                "legacyScore": score.get("legacy", 0),
+                "freedomScore": score.get("freedom", 0),
+                "totalScore": score.get("total", 0),
+                "endingType": score.get("ending_type", ""),
+                "finalEra": score.get("final_era", ""),
+                "blurb": score.get("blurb", ""),
+                "endingNarrative": score.get("ending_narrative", ""),
+            }
+            storage.add_leaderboard_entry(entry)
+            return storage.get_rank(score.get("total", 0))
         except Exception as e:
             print(f"Add score error: {e}")
             return 1
-    
+
     def get_top_scores(self, n: int = 10) -> List[dict]:
         """Get top N scores"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/leaderboard?limit={n}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return []
-            return response.json()
+            scores = storage.get_top_scores(n)
+            return [self._format_score(s) for s in scores]
         except Exception:
             return []
-    
+
     def get_user_scores(self, user_id: str, n: int = 10) -> List[dict]:
         """Get top N scores for a specific user"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/leaderboard/{user_id}?limit={n}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return []
-            return response.json()
+            scores = storage.get_user_scores(user_id, n)
+            return [self._format_score(s) for s in scores]
         except Exception:
             return []
+
+    def _format_score(self, s: dict) -> dict:
+        """Format database score to expected format"""
+        return {
+            "user_id": s.get("user_id"),
+            "game_id": s.get("game_id"),
+            "player_name": s.get("player_name"),
+            "turns_survived": s.get("turns_survived"),
+            "eras_visited": s.get("eras_visited"),
+            "belonging": s.get("belonging_score"),
+            "legacy": s.get("legacy_score"),
+            "freedom": s.get("freedom_score"),
+            "total": s.get("total_score"),
+            "ending_type": s.get("ending_type"),
+            "final_era": s.get("final_era"),
+            "blurb": s.get("blurb"),
+            "ending_narrative": s.get("ending_narrative"),
+            "timestamp": s.get("created_at").isoformat() if s.get("created_at") else None,
+        }
 
 
 class DatabaseGameHistory:
     """
-    Stores the full narrative history via Express API.
+    Stores the full narrative history via direct database access.
     """
-    
-    def __init__(self, api_base: str = None):
-        self.api_base = api_base or API_BASE_URL
-    
+
+    def __init__(self):
+        pass
+
     def start_new_game(self, player_name: str, user_id: str = "") -> dict:
         """Create a new game record and return it"""
         game = {
@@ -197,17 +185,17 @@ class DatabaseGameHistory:
             "blurb": None
         }
         return game
-    
+
     def add_narrative(self, game: dict, text: str):
         """Add a narrative chunk to the current era"""
         game["current_era_narrative"].append(text)
-    
+
     def start_era(self, game: dict, era_name: str, era_year: int, era_location: str):
         """Start recording a new era"""
         if game["current_era_narrative"]:
             if game["eras"]:
                 game["eras"][-1]["narrative"] = "\n\n".join(game["current_era_narrative"])
-        
+
         game["eras"].append({
             "era_name": era_name,
             "era_year": era_year,
@@ -215,62 +203,49 @@ class DatabaseGameHistory:
             "narrative": ""
         })
         game["current_era_narrative"] = []
-    
+
     def end_game(self, game: dict, score):
         """Finalize the game record and save to database"""
         if game["current_era_narrative"] and game["eras"]:
             game["eras"][-1]["narrative"] = "\n\n".join(game["current_era_narrative"])
-        
+
         game["ended_at"] = datetime.now().isoformat()
         game["final_score"] = score.to_dict() if hasattr(score, 'to_dict') else score
         game["ending_type"] = score.ending_type if hasattr(score, 'ending_type') else None
         game["blurb"] = score.get_blurb() if hasattr(score, 'get_blurb') else None
-        
+
         try:
-            requests.post(
-                f"{self.api_base}/api/history",
-                json={
-                    "gameId": game["id"],
-                    "userId": game.get("user_id", ""),
-                    "playerName": game.get("player_name"),
-                    "startedAt": game.get("started_at"),
-                    "endedAt": game.get("ended_at"),
-                    "eras": game.get("eras", []),
-                    "finalScore": game.get("final_score"),
-                    "endingType": game.get("ending_type"),
-                    "blurb": game.get("blurb"),
-                },
-                timeout=10
-            )
+            storage.save_game_history({
+                "gameId": game["id"],
+                "userId": game.get("user_id", ""),
+                "playerName": game.get("player_name"),
+                "startedAt": game.get("started_at"),
+                "endedAt": game.get("ended_at"),
+                "eras": game.get("eras", []),
+                "finalScore": game.get("final_score"),
+                "endingType": game.get("ending_type"),
+                "blurb": game.get("blurb"),
+            })
         except Exception as e:
             print(f"Save history error: {e}")
-    
+
     def get_game(self, game_id: str) -> Optional[dict]:
         """Get a completed game record"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/history/{game_id}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return None
-            return response.json()
+            return storage.get_game_history(game_id)
         except Exception:
             return None
-    
+
     def get_games_by_leaderboard_entry(self, user_id: str, timestamp: str) -> Optional[dict]:
         """Get game history by leaderboard entry"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/histories/{user_id}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return None
-            histories = response.json()
+            histories = storage.get_user_histories(user_id)
             for h in histories:
-                if h.get("endedAt", "").startswith(timestamp[:10]):
-                    return h
+                ended_at = h.get("ended_at")
+                if ended_at:
+                    ended_str = ended_at.isoformat() if hasattr(ended_at, 'isoformat') else str(ended_at)
+                    if ended_str.startswith(timestamp[:10]):
+                        return h
             return histories[0] if histories else None
         except Exception:
             return None
@@ -278,125 +253,110 @@ class DatabaseGameHistory:
 
 class DatabaseAoAStorage:
     """
-    Database storage for Annals of Anachron entries via Express API.
+    Database storage for Annals of Anachron entries via direct database access.
     Implements the same interface as AoAStorage from scoring.py.
     """
-    
-    def __init__(self, api_base: str = None):
-        self.api_base = api_base or API_BASE_URL
-    
+
+    def __init__(self):
+        pass
+
     def save_entry(self, entry) -> bool:
         """Save an AoA entry to database"""
         try:
             entry_dict = entry.to_dict() if hasattr(entry, 'to_dict') else entry
-            
-            response = requests.post(
-                f"{self.api_base}/api/aoa",
-                json={
-                    "entryId": entry_dict.get("entry_id", ""),
-                    "userId": entry_dict.get("user_id", ""),
-                    "gameId": entry_dict.get("game_id", ""),
-                    "playerName": entry_dict.get("player_name", ""),
-                    "characterName": entry_dict.get("character_name", ""),
-                    "finalEra": entry_dict.get("final_era", ""),
-                    "finalEraYear": entry_dict.get("final_era_year", 0),
-                    "erasVisited": entry_dict.get("eras_visited", 0),
-                    "turnsSurvived": entry_dict.get("turns_survived", 0),
-                    "endingType": entry_dict.get("ending_type", ""),
-                    "belongingScore": entry_dict.get("belonging_score", 0),
-                    "legacyScore": entry_dict.get("legacy_score", 0),
-                    "freedomScore": entry_dict.get("freedom_score", 0),
-                    "totalScore": entry_dict.get("total_score", 0),
-                    "keyNpcs": entry_dict.get("key_npcs", []),
-                    "definingMoments": entry_dict.get("defining_moments", []),
-                    "wisdomMoments": entry_dict.get("wisdom_moments", []),
-                    "itemsUsed": entry_dict.get("items_used", []),
-                    "playerNarrative": entry_dict.get("player_narrative", ""),
-                    "historianNarrative": entry_dict.get("historian_narrative", ""),
-                },
-                timeout=15
-            )
-            return response.status_code == 200
+
+            storage.save_aoa_entry({
+                "entryId": entry_dict.get("entry_id", ""),
+                "userId": entry_dict.get("user_id", ""),
+                "gameId": entry_dict.get("game_id", ""),
+                "playerName": entry_dict.get("player_name", ""),
+                "characterName": entry_dict.get("character_name", ""),
+                "finalEra": entry_dict.get("final_era", ""),
+                "finalEraYear": entry_dict.get("final_era_year", 0),
+                "erasVisited": entry_dict.get("eras_visited", 0),
+                "turnsSurvived": entry_dict.get("turns_survived", 0),
+                "endingType": entry_dict.get("ending_type", ""),
+                "belongingScore": entry_dict.get("belonging_score", 0),
+                "legacyScore": entry_dict.get("legacy_score", 0),
+                "freedomScore": entry_dict.get("freedom_score", 0),
+                "totalScore": entry_dict.get("total_score", 0),
+                "keyNpcs": entry_dict.get("key_npcs", []),
+                "definingMoments": entry_dict.get("defining_moments", []),
+                "wisdomMoments": entry_dict.get("wisdom_moments", []),
+                "itemsUsed": entry_dict.get("items_used", []),
+                "playerNarrative": entry_dict.get("player_narrative", ""),
+                "historianNarrative": entry_dict.get("historian_narrative", ""),
+            })
+            return True
         except Exception as e:
             print(f"Save AoA entry error: {e}")
             return False
-    
+
     def get_entry(self, entry_id: str):
         """Get a specific entry by ID"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/aoa/entry/{entry_id}",
-                timeout=10
-            )
-            if response.status_code != 200:
+            data = storage.get_aoa_entry(entry_id)
+            if not data:
                 return None
-            
-            data = response.json()
             return self._dict_to_entry(data)
         except Exception:
             return None
-    
+
     def get_user_entries(self, user_id: str, limit: int = 20, offset: int = 0) -> List:
         """Get entries for a user with pagination"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/aoa/user/{user_id}?limit={limit}&offset={offset}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return []
-            
-            data = response.json()
-            entries_data = data.get("entries", [])
-            return [self._dict_to_entry(e) for e in entries_data]
+            entries = storage.get_user_aoa_entries(user_id, limit, offset)
+            return [self._dict_to_entry(e) for e in entries]
         except Exception:
             return []
-    
+
     def get_recent_entries(self, limit: int = 20, offset: int = 0) -> List:
         """Get recent entries (for public feed) with pagination"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/aoa/recent?limit={limit}&offset={offset}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return []
-            
-            data = response.json()
-            entries_data = data.get("entries", [])
-            return [self._dict_to_entry(e) for e in entries_data]
+            entries = storage.get_recent_aoa_entries(limit, offset)
+            return [self._dict_to_entry(e) for e in entries]
         except Exception:
             return []
-    
+
     def count_user_entries(self, user_id: str) -> int:
         """Count total entries for a user"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/aoa/count?userId={user_id}",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return 0
-            return response.json().get("count", 0)
+            return storage.count_user_aoa_entries(user_id)
         except Exception:
             return 0
-    
+
     def count_all_entries(self) -> int:
         """Count total entries"""
         try:
-            response = requests.get(
-                f"{self.api_base}/api/aoa/count",
-                timeout=10
-            )
-            if response.status_code != 200:
-                return 0
-            return response.json().get("count", 0)
+            return storage.count_all_aoa_entries()
         except Exception:
             return 0
-    
+
     def _dict_to_entry(self, data: dict):
-        """Convert API response dict to AoAEntry object"""
+        """Convert database dict to AoAEntry object"""
         from scoring import AoAEntry
+
+        # Handle JSON fields that may be strings
+        key_npcs = data.get("key_npcs", [])
+        if isinstance(key_npcs, str):
+            key_npcs = json.loads(key_npcs)
+
+        defining_moments = data.get("defining_moments", [])
+        if isinstance(defining_moments, str):
+            defining_moments = json.loads(defining_moments)
+
+        wisdom_moments = data.get("wisdom_moments", [])
+        if isinstance(wisdom_moments, str):
+            wisdom_moments = json.loads(wisdom_moments)
+
+        items_used = data.get("items_used", [])
+        if isinstance(items_used, str):
+            items_used = json.loads(items_used)
+
+        created_at = data.get("created_at")
+        if hasattr(created_at, 'isoformat'):
+            created_at = created_at.isoformat()
+
         return AoAEntry(
             entry_id=data.get("entry_id", ""),
             user_id=data.get("user_id", ""),
@@ -411,12 +371,12 @@ class DatabaseAoAStorage:
             belonging_score=data.get("belonging_score", 0),
             legacy_score=data.get("legacy_score", 0),
             freedom_score=data.get("freedom_score", 0),
-            key_npcs=data.get("key_npcs", []),
-            defining_moments=data.get("defining_moments", []),
-            wisdom_moments=data.get("wisdom_moments", []),
-            items_used=data.get("items_used", []),
+            key_npcs=key_npcs,
+            defining_moments=defining_moments,
+            wisdom_moments=wisdom_moments,
+            items_used=items_used,
             player_narrative=data.get("player_narrative", ""),
             historian_narrative=data.get("historian_narrative", ""),
-            created_at=data.get("created_at", ""),
+            created_at=created_at or "",
             total_score=data.get("total_score", 0),
         )
