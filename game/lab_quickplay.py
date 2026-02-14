@@ -27,7 +27,12 @@ class QuickPlaySession:
     def __init__(self, session_id: str, user_id: str, player_name: str = "Lab Tester",
                  region: str = "european",
                  system_prompt_override: str = None,
-                 turn_prompt_override: str = None):
+                 turn_prompt_override: str = None,
+                 arrival_prompt_override: str = None,
+                 window_prompt_override: str = None,
+                 model_override: str = None,
+                 temperature: float = None,
+                 dice_roll: int = None):
         self.session_id = session_id
         self.user_id = user_id
         self.api = GameAPI(user_id=user_id)
@@ -35,11 +40,46 @@ class QuickPlaySession:
         self.snapshot_ids: List[str] = []
         self.system_prompt_override = system_prompt_override
         self.turn_prompt_override = turn_prompt_override
+        self.arrival_prompt_override = arrival_prompt_override
+        self.window_prompt_override = window_prompt_override
+        self.model_override = model_override
+        self.temperature = temperature
+        self.dice_roll = dice_roll
 
         # Run through setup synchronously
         list(self.api.start_game())
         list(self.api.set_player_name(player_name))
         list(self.api.set_region(region))
+
+    def update_params(self,
+                      system_prompt_override=None,
+                      turn_prompt_override=None,
+                      arrival_prompt_override=None,
+                      window_prompt_override=None,
+                      model_override=None,
+                      temperature=None,
+                      dice_roll=None):
+        """Update session parameters between turns. Only updates non-None values."""
+        if system_prompt_override is not None:
+            self.system_prompt_override = system_prompt_override or None
+        if turn_prompt_override is not None:
+            self.turn_prompt_override = turn_prompt_override or None
+        if arrival_prompt_override is not None:
+            self.arrival_prompt_override = arrival_prompt_override or None
+        if window_prompt_override is not None:
+            self.window_prompt_override = window_prompt_override or None
+        if model_override is not None:
+            self.model_override = model_override or None
+        if temperature is not None:
+            self.temperature = temperature if temperature != -1 else None
+        if dice_roll is not None:
+            self.dice_roll = dice_roll if dice_roll != -1 else None
+
+    def _apply_api_overrides(self):
+        """Push model/temperature/dice_roll overrides to the GameAPI instance."""
+        self.api.model_override = self.model_override
+        self.api.temperature_override = self.temperature
+        self.api.dice_roll_override = self.dice_roll
 
     def _apply_system_override(self):
         """Apply system prompt override to the narrator if set.
@@ -63,9 +103,34 @@ class QuickPlaySession:
         if self.turn_prompt_override:
             prompt_overrides._active_overrides.pop("turn", None)
 
+    def _push_arrival_override(self):
+        """Temporarily push arrival template override into the cache."""
+        if self.arrival_prompt_override:
+            prompt_overrides._active_overrides["arrival"] = self.arrival_prompt_override
+
+    def _pop_arrival_override(self):
+        """Revert arrival template override from the cache."""
+        if self.arrival_prompt_override:
+            prompt_overrides._active_overrides.pop("arrival", None)
+
+    def _push_window_override(self):
+        """Temporarily push window template override into the cache."""
+        if self.window_prompt_override:
+            prompt_overrides._active_overrides["window"] = self.window_prompt_override
+
+    def _pop_window_override(self):
+        """Revert window template override from the cache."""
+        if self.window_prompt_override:
+            prompt_overrides._active_overrides.pop("window", None)
+
     def enter_era(self) -> Dict[str, Any]:
         """Enter the first/next era. Returns messages and auto-snapshot."""
-        messages = list(self.api.enter_first_era())
+        self._apply_api_overrides()
+        self._push_arrival_override()
+        try:
+            messages = list(self.api.enter_first_era())
+        finally:
+            self._pop_arrival_override()
         self._apply_system_override()
         snapshot_id = self._auto_snapshot("arrival")
         return {
@@ -77,12 +142,15 @@ class QuickPlaySession:
     def choose(self, choice: str) -> Dict[str, Any]:
         """Make a choice. Returns messages and auto-snapshot."""
         self.turn_count += 1
+        self._apply_api_overrides()
         self._apply_system_override()
         self._push_turn_override()
+        self._push_window_override()
         try:
             messages = list(self.api.make_choice(choice))
         finally:
             self._pop_turn_override()
+            self._pop_window_override()
         snapshot_id = self._auto_snapshot(f"turn-{self.turn_count}")
         return {
             'messages': messages,
@@ -92,7 +160,12 @@ class QuickPlaySession:
 
     def continue_to_next_era(self) -> Dict[str, Any]:
         """Continue after departure."""
-        messages = list(self.api.continue_to_next_era())
+        self._apply_api_overrides()
+        self._push_arrival_override()
+        try:
+            messages = list(self.api.continue_to_next_era())
+        finally:
+            self._pop_arrival_override()
         self._apply_system_override()
         snapshot_id = self._auto_snapshot("new-era")
         return {
@@ -137,13 +210,23 @@ class QuickPlaySession:
 def create_session(user_id: str, player_name: str = "Lab Tester",
                    region: str = "european",
                    system_prompt_override: str = None,
-                   turn_prompt_override: str = None) -> Dict[str, Any]:
+                   turn_prompt_override: str = None,
+                   arrival_prompt_override: str = None,
+                   window_prompt_override: str = None,
+                   model_override: str = None,
+                   temperature: float = None,
+                   dice_roll: int = None) -> Dict[str, Any]:
     """Create a new quick play session."""
     session_id = str(uuid.uuid4())
     session = QuickPlaySession(
         session_id, user_id, player_name, region,
         system_prompt_override=system_prompt_override,
         turn_prompt_override=turn_prompt_override,
+        arrival_prompt_override=arrival_prompt_override,
+        window_prompt_override=window_prompt_override,
+        model_override=model_override,
+        temperature=temperature,
+        dice_roll=dice_roll,
     )
     _sessions[session_id] = session
     return {

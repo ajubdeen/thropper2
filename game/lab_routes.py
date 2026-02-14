@@ -604,6 +604,29 @@ def get_config():
 
 # ==================== Quick Play ====================
 
+def _resolve_variant_id(variant_id: str) -> str:
+    """Resolve a prompt variant ID to its template text, or None."""
+    if not variant_id:
+        return None
+    variant = lab_db.get_prompt_variant(variant_id)
+    return variant['template'] if variant else None
+
+
+def _apply_per_turn_params(qp, data: dict):
+    """Apply per-turn overridable params (model, temperature, dice_roll) to session."""
+    if not data:
+        return
+    updates = {}
+    if 'model' in data:
+        updates['model_override'] = data['model']
+    if 'temperature' in data:
+        updates['temperature'] = data['temperature']
+    if 'dice_roll' in data:
+        updates['dice_roll'] = data['dice_roll']
+    if updates:
+        qp.update_params(**updates)
+
+
 @lab.route('/quickplay/start', methods=['POST'])
 @require_admin
 def quickplay_start():
@@ -612,16 +635,10 @@ def quickplay_start():
         data = request.json or {}
 
         # Resolve prompt variant IDs to template text
-        system_prompt_override = None
-        turn_prompt_override = None
-        if data.get('system_prompt_variant_id'):
-            variant = lab_db.get_prompt_variant(data['system_prompt_variant_id'])
-            if variant:
-                system_prompt_override = variant['template']
-        if data.get('turn_prompt_variant_id'):
-            variant = lab_db.get_prompt_variant(data['turn_prompt_variant_id'])
-            if variant:
-                turn_prompt_override = variant['template']
+        system_prompt_override = _resolve_variant_id(data.get('system_prompt_variant_id'))
+        turn_prompt_override = _resolve_variant_id(data.get('turn_prompt_variant_id'))
+        arrival_prompt_override = _resolve_variant_id(data.get('arrival_prompt_variant_id'))
+        window_prompt_override = _resolve_variant_id(data.get('window_prompt_variant_id'))
 
         result = lab_quickplay.create_session(
             user_id=session['user_id'],
@@ -629,6 +646,11 @@ def quickplay_start():
             region=data.get('region', 'european'),
             system_prompt_override=system_prompt_override,
             turn_prompt_override=turn_prompt_override,
+            arrival_prompt_override=arrival_prompt_override,
+            window_prompt_override=window_prompt_override,
+            model_override=data.get('model'),
+            temperature=data.get('temperature'),
+            dice_roll=data.get('dice_roll'),
         )
         return jsonify(result), 201
     except Exception as e:
@@ -644,6 +666,7 @@ def quickplay_enter_era(session_id):
         qp = lab_quickplay.get_session(session_id)
         if not qp:
             return jsonify({'error': 'Session not found'}), 404
+        _apply_per_turn_params(qp, request.json)
         result = qp.enter_era()
         return jsonify(result)
     except Exception as e:
@@ -660,6 +683,7 @@ def quickplay_choose(session_id):
         if not qp:
             return jsonify({'error': 'Session not found'}), 404
         data = request.json
+        _apply_per_turn_params(qp, data)
         result = qp.choose(data['choice'])
         return jsonify(result)
     except KeyError as e:
@@ -677,10 +701,43 @@ def quickplay_continue(session_id):
         qp = lab_quickplay.get_session(session_id)
         if not qp:
             return jsonify({'error': 'Session not found'}), 404
+        _apply_per_turn_params(qp, request.json)
         result = qp.continue_to_next_era()
         return jsonify(result)
     except Exception as e:
         logger.error(f"Quick play continue error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/quickplay/<session_id>/update-params', methods=['PATCH'])
+@require_admin
+def quickplay_update_params(session_id):
+    """Update session parameters between turns."""
+    try:
+        qp = lab_quickplay.get_session(session_id)
+        if not qp:
+            return jsonify({'error': 'Session not found'}), 404
+        data = request.json or {}
+
+        # Resolve any new prompt variant IDs
+        updates = {}
+        for prompt_type in ['system', 'turn', 'arrival', 'window']:
+            key = f'{prompt_type}_prompt_variant_id'
+            if key in data:
+                template = _resolve_variant_id(data[key])
+                updates[f'{prompt_type}_prompt_override'] = template or ''
+
+        if 'model' in data:
+            updates['model_override'] = data['model']
+        if 'temperature' in data:
+            updates['temperature'] = data['temperature']
+        if 'dice_roll' in data:
+            updates['dice_roll'] = data['dice_roll']
+
+        qp.update_params(**updates)
+        return jsonify({'ok': True})
+    except Exception as e:
+        logger.error(f"Quick play update params error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

@@ -458,14 +458,27 @@ export function usePreviewPrompts(
 
 // ==================== Quick Play ====================
 
+export interface QuickPlayStartParams {
+  player_name?: string;
+  region?: string;
+  system_prompt_variant_id?: string;
+  turn_prompt_variant_id?: string;
+  arrival_prompt_variant_id?: string;
+  window_prompt_variant_id?: string;
+  model?: string;
+  temperature?: number;
+  dice_roll?: number;
+}
+
+export interface QuickPlayTurnParams {
+  model?: string;
+  temperature?: number;
+  dice_roll?: number;
+}
+
 export function useQuickPlayStart() {
   return useMutation({
-    mutationFn: async (data?: {
-      player_name?: string;
-      region?: string;
-      system_prompt_variant_id?: string;
-      turn_prompt_variant_id?: string;
-    }) => {
+    mutationFn: async (data?: QuickPlayStartParams) => {
       const res = await apiRequest("POST", "/api/lab/quickplay/start", data || {});
       return res.json();
     },
@@ -474,10 +487,14 @@ export function useQuickPlayStart() {
 
 export function useQuickPlayEnterEra() {
   return useMutation({
-    mutationFn: async (sessionId: string) => {
+    mutationFn: async ({
+      sessionId,
+      ...params
+    }: { sessionId: string } & QuickPlayTurnParams) => {
       const res = await apiRequest(
         "POST",
-        `/api/lab/quickplay/${sessionId}/enter-era`
+        `/api/lab/quickplay/${sessionId}/enter-era`,
+        Object.keys(params).length > 0 ? params : undefined
       );
       return res.json();
     },
@@ -489,14 +506,15 @@ export function useQuickPlayChoose() {
     mutationFn: async ({
       sessionId,
       choice,
+      ...params
     }: {
       sessionId: string;
       choice: string;
-    }) => {
+    } & QuickPlayTurnParams) => {
       const res = await apiRequest(
         "POST",
         `/api/lab/quickplay/${sessionId}/choose`,
-        { choice }
+        { choice, ...params }
       );
       return res.json();
     },
@@ -505,10 +523,39 @@ export function useQuickPlayChoose() {
 
 export function useQuickPlayContinue() {
   return useMutation({
-    mutationFn: async (sessionId: string) => {
+    mutationFn: async ({
+      sessionId,
+      ...params
+    }: { sessionId: string } & QuickPlayTurnParams) => {
       const res = await apiRequest(
         "POST",
-        `/api/lab/quickplay/${sessionId}/continue`
+        `/api/lab/quickplay/${sessionId}/continue`,
+        Object.keys(params).length > 0 ? params : undefined
+      );
+      return res.json();
+    },
+  });
+}
+
+export function useQuickPlayUpdateParams() {
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      ...params
+    }: {
+      sessionId: string;
+      system_prompt_variant_id?: string;
+      turn_prompt_variant_id?: string;
+      arrival_prompt_variant_id?: string;
+      window_prompt_variant_id?: string;
+      model?: string;
+      temperature?: number;
+      dice_roll?: number;
+    }) => {
+      const res = await apiRequest(
+        "PATCH",
+        `/api/lab/quickplay/${sessionId}/update-params`,
+        params
       );
       return res.json();
     },

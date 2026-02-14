@@ -147,7 +147,7 @@ class NarrativeEngine:
         """Get current conversation history for saving"""
         return self.messages.copy()
     
-    def generate_streaming(self, user_prompt: str, model: str = None) -> Generator[Dict, None, str]:
+    def generate_streaming(self, user_prompt: str, model: str = None, temperature: float = None) -> Generator[Dict, None, str]:
         """
         Generate narrative response with streaming.
         Yields message dicts, returns full response.
@@ -155,6 +155,7 @@ class NarrativeEngine:
         Args:
             user_prompt: The prompt to send
             model: Override model (defaults to NARRATIVE_MODEL for gameplay)
+            temperature: Override temperature (defaults to API default if None)
         """
         self.messages.append({"role": "user", "content": user_prompt})
 
@@ -166,7 +167,7 @@ class NarrativeEngine:
                 chunk = word + (' ' if i < len(words) - 1 else '')
                 yield emit(MessageType.NARRATIVE_CHUNK, {"text": chunk})
         else:
-            response = yield from self._api_call_streaming(model=model or NARRATIVE_MODEL)
+            response = yield from self._api_call_streaming(model=model or NARRATIVE_MODEL, temperature=temperature)
 
         self.messages.append({"role": "assistant", "content": response})
         return response
@@ -188,7 +189,7 @@ class NarrativeEngine:
         self.messages.append({"role": "assistant", "content": response})
         return response
     
-    def _api_call_streaming(self, model: str = NARRATIVE_MODEL) -> Generator[Dict, None, str]:
+    def _api_call_streaming(self, model: str = NARRATIVE_MODEL, temperature: float = None) -> Generator[Dict, None, str]:
         """Make streaming API call, yield chunks, return full response"""
         response = ""
         buffer = ""
@@ -198,12 +199,16 @@ class NarrativeEngine:
         hidden_tag_patterns = ['<anchors>', '<character_name>', '<key_npc>', '<wisdom>']
 
         try:
-            with self.client.messages.stream(
+            stream_kwargs = dict(
                 model=model,
                 max_tokens=1500,
                 system=self.system_prompt,
-                messages=self.messages
-            ) as api_stream:
+                messages=self.messages,
+            )
+            if temperature is not None:
+                stream_kwargs["temperature"] = temperature
+
+            with self.client.messages.stream(**stream_kwargs) as api_stream:
                 for text in api_stream.text_stream:
                     response += text
                     buffer += text
@@ -455,16 +460,21 @@ class GameAPI:
         self.narrator = None
         self.current_era = None
         self._selected_region = RegionPreference.WORLDWIDE
-        
+
         # History tracking (database-backed)
         self.history = DatabaseGameHistory()
         self.current_game = None
-        
+
         # Save manager (database-backed)
         self.save_manager = DatabaseSaveManager()
-        
+
         # Game ID for this session
         self.game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Lab overrides (set externally by QuickPlaySession)
+        self.model_override = None         # str: model ID
+        self.temperature_override = None   # float: 0.0-1.5
+        self.dice_roll_override = None     # int: 1-20
         
         # Ending narrative for stay-forever endings
         self._ending_narrative = ""
@@ -886,8 +896,8 @@ class GameAPI:
         - Processing response (anchors, items)
         - Filtering and emitting choices
         """
-        # Roll dice for this turn
-        roll = random.randint(1, 20)
+        # Roll dice for this turn (lab override if set)
+        roll = self.dice_roll_override if self.dice_roll_override is not None else random.randint(1, 20)
         
         # Advance turn - this may open or close the window
         events = self.state.advance_turn()
@@ -917,25 +927,27 @@ class GameAPI:
         
         # Generate narrative
         response = ""
-        generator = self.narrator.generate_streaming(prompt)
+        generator = self.narrator.generate_streaming(
+            prompt, model=self.model_override, temperature=self.temperature_override
+        )
         try:
             while True:
                 msg = next(generator)
                 yield msg
         except StopIteration as e:
             response = e.value if e.value else ""
-        
+
         # Fallback if response is empty
         if not response:
             response = self.narrator.messages[-1]["content"] if self.narrator.messages else ""
-        
+
         # Record narrative
         if self.current_game:
             self.history.add_narrative(self.current_game, history_prefix + response)
-        
+
         # Process response (anchors, items) - this may change can_stay_meaningfully
         feedback = self._process_response(response)
-        
+
         # Emit milestone if a level threshold was crossed (progress feedback)
         if feedback.get("milestone"):
             yield emit(MessageType.PROGRESS_MILESTONE, feedback["milestone"])
@@ -1118,9 +1130,11 @@ class GameAPI:
         # Generate arrival narrative
         prompt = get_arrival_prompt(self.state, self.current_era)
         response = ""
-        
+
         # Stream the narrative - capture full response from generator
-        generator = self.narrator.generate_streaming(prompt)
+        generator = self.narrator.generate_streaming(
+            prompt, model=self.model_override, temperature=self.temperature_override
+        )
         try:
             while True:
                 msg = next(generator)

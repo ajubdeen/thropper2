@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -12,14 +13,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Play, Loader2, GitBranch } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Play, Loader2, GitBranch, ChevronDown, Settings2 } from "lucide-react";
 import {
   useQuickPlayStart,
   useQuickPlayEnterEra,
   useQuickPlayChoose,
   useQuickPlayContinue,
+  useQuickPlayUpdateParams,
   usePromptVariants,
+  useModels,
+  useLabConfig,
 } from "@/hooks/use-lab";
+import type { QuickPlayTurnParams } from "@/hooks/use-lab";
 
 interface GameMessage {
   type: string;
@@ -30,33 +40,75 @@ interface Props {
   onBranchSnapshot?: (snapshotId: string) => void;
 }
 
+const DICE_LABELS: Record<number, string> = {
+  1: "Catastrophic",
+  5: "Unlucky",
+  10: "Neutral",
+  15: "Lucky",
+  20: "Critical",
+};
+
+function getDiceLabel(value: number): string {
+  if (value <= 1) return "1 — Catastrophic";
+  if (value <= 3) return `${value} — Very Unlucky`;
+  if (value <= 5) return `${value} — Unlucky`;
+  if (value <= 8) return `${value} — Below Average`;
+  if (value <= 12) return `${value} — Neutral`;
+  if (value <= 15) return `${value} — Lucky`;
+  if (value <= 18) return `${value} — Very Lucky`;
+  if (value <= 19) return `${value} — Excellent`;
+  return "20 — Critical Success";
+}
+
 export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
+  // Session state
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [playerName, setPlayerName] = useState("Lab Tester");
-  const [region, setRegion] = useState("european");
-  const [systemVariantId, setSystemVariantId] = useState<string>("");
-  const [turnVariantId, setTurnVariantId] = useState<string>("");
   const [messages, setMessages] = useState<GameMessage[]>([]);
-  const [choices, setChoices] = useState<Array<{ id: string; text: string }>>(
-    []
-  );
+  const [choices, setChoices] = useState<Array<{ id: string; text: string }>>([]);
   const [lastSnapshotId, setLastSnapshotId] = useState<string | null>(null);
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const [gameState, setGameState] = useState<Record<string, any> | null>(null);
 
+  // Config state
+  const [playerName, setPlayerName] = useState("Lab Tester");
+  const [region, setRegion] = useState("european");
+  const [systemVariantId, setSystemVariantId] = useState("");
+  const [turnVariantId, setTurnVariantId] = useState("");
+  const [arrivalVariantId, setArrivalVariantId] = useState("");
+  const [windowVariantId, setWindowVariantId] = useState("");
+  const [model, setModel] = useState("");
+  const [temperature, setTemperature] = useState(1.0);
+  const [diceRoll, setDiceRoll] = useState(0); // 0 = random
+  const [configOpen, setConfigOpen] = useState(true);
+
+  // Data hooks
   const { data: systemVariants } = usePromptVariants("system");
   const { data: turnVariants } = usePromptVariants("turn");
+  const { data: arrivalVariants } = usePromptVariants("arrival");
+  const { data: windowVariants } = usePromptVariants("window");
+  const { data: models } = useModels();
+  const { data: config } = useLabConfig();
 
+  // Mutation hooks
   const startMutation = useQuickPlayStart();
   const enterEraMutation = useQuickPlayEnterEra();
   const chooseMutation = useQuickPlayChoose();
   const continueMutation = useQuickPlayContinue();
+  const updateParamsMutation = useQuickPlayUpdateParams();
 
   const isLoading =
     startMutation.isPending ||
     enterEraMutation.isPending ||
     chooseMutation.isPending ||
     continueMutation.isPending;
+
+  const getTurnParams = useCallback((): QuickPlayTurnParams => {
+    const params: QuickPlayTurnParams = {};
+    if (model) params.model = model;
+    if (temperature !== 1.0) params.temperature = temperature;
+    if (diceRoll > 0) params.dice_roll = diceRoll;
+    return params;
+  }, [model, temperature, diceRoll]);
 
   const processResult = useCallback(
     (result: {
@@ -70,7 +122,6 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
       if (result.snapshot_id) setLastSnapshotId(result.snapshot_id);
       if (result.state) setGameState(result.state);
 
-      // Extract choices and waiting state from messages
       let newChoices: Array<{ id: string; text: string }> = [];
       let newWaiting: string | null = null;
 
@@ -96,6 +147,11 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
         region,
         system_prompt_variant_id: systemVariantId || undefined,
         turn_prompt_variant_id: turnVariantId || undefined,
+        arrival_prompt_variant_id: arrivalVariantId || undefined,
+        window_prompt_variant_id: windowVariantId || undefined,
+        model: model || undefined,
+        temperature: temperature !== 1.0 ? temperature : undefined,
+        dice_roll: diceRoll > 0 ? diceRoll : undefined,
       },
       {
         onSuccess: (data) => {
@@ -104,6 +160,7 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
           setChoices([]);
           setWaitingFor("enter_era");
           if (data.state) setGameState(data.state);
+          setConfigOpen(false);
         },
       }
     );
@@ -111,94 +168,182 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
 
   const handleEnterEra = () => {
     if (!sessionId) return;
-    enterEraMutation.mutate(sessionId, {
-      onSuccess: (result) => processResult(result),
-    });
+    enterEraMutation.mutate(
+      { sessionId, ...getTurnParams() },
+      { onSuccess: (result) => processResult(result) }
+    );
   };
 
   const handleChoice = (choice: string) => {
     if (!sessionId) return;
     chooseMutation.mutate(
-      { sessionId, choice },
+      { sessionId, choice, ...getTurnParams() },
       { onSuccess: (result) => processResult(result) }
     );
   };
 
   const handleContinue = () => {
     if (!sessionId) return;
-    continueMutation.mutate(sessionId, {
-      onSuccess: (result) => processResult(result),
-    });
+    continueMutation.mutate(
+      { sessionId, ...getTurnParams() },
+      { onSuccess: (result) => processResult(result) }
+    );
   };
 
-  // Not started yet
+  // Shared prompt variant selector
+  const PromptSelect = ({
+    label,
+    value,
+    onChange,
+    variants,
+  }: {
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    variants: Array<{ id: string; name: string; is_live: boolean }> | undefined;
+  }) => (
+    <div>
+      <Label className="text-xs">{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue placeholder="Baseline" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="default">Baseline (default)</SelectItem>
+          {variants?.map((v) => (
+            <SelectItem key={v.id} value={v.id}>
+              {v.name}
+              {v.is_live ? " (LIVE)" : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const configPanel = (
+    <div className="space-y-3">
+      {/* Row 1: Player name + Region */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">Player Name</Label>
+          <Input
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Region</Label>
+          <Select value={region} onValueChange={setRegion}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="european">European</SelectItem>
+              <SelectItem value="worldwide">Worldwide</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Row 2: Four prompt selectors */}
+      <div className="grid grid-cols-4 gap-2">
+        <PromptSelect
+          label="System Prompt"
+          value={systemVariantId}
+          onChange={setSystemVariantId}
+          variants={systemVariants}
+        />
+        <PromptSelect
+          label="Turn Prompt"
+          value={turnVariantId}
+          onChange={setTurnVariantId}
+          variants={turnVariants}
+        />
+        <PromptSelect
+          label="Arrival Prompt"
+          value={arrivalVariantId}
+          onChange={setArrivalVariantId}
+          variants={arrivalVariants}
+        />
+        <PromptSelect
+          label="Window Prompt"
+          value={windowVariantId}
+          onChange={setWindowVariantId}
+          variants={windowVariants}
+        />
+      </div>
+
+      {/* Row 3: Model + Temperature + Dice Roll */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <Label className="text-xs">Model</Label>
+          <Select value={model} onValueChange={setModel}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Default" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">
+                Default ({config?.default_model?.split("-").slice(1, 3).join(" ") || "Sonnet"})
+              </SelectItem>
+              {models?.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">
+            Temperature: {temperature.toFixed(1)}
+          </Label>
+          <Slider
+            value={[temperature]}
+            onValueChange={([v]) => setTemperature(v)}
+            min={0}
+            max={1.5}
+            step={0.1}
+            className="mt-2"
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+            <span>Focused</span>
+            <span>Creative</span>
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs">
+            Dice Roll: {diceRoll === 0 ? "Random" : getDiceLabel(diceRoll)}
+          </Label>
+          <Slider
+            value={[diceRoll]}
+            onValueChange={([v]) => setDiceRoll(v)}
+            min={0}
+            max={20}
+            step={1}
+            className="mt-2"
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+            <span>Random</span>
+            <span>1=Bad</span>
+            <span>10=Avg</span>
+            <span>20=Crit</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Not started yet — show full config + start button
   if (!sessionId) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Play through the game with auto-snapshots at every turn. Branch from
-          any point to test variations.
+          Play through the game with auto-snapshots at every turn. Configure
+          prompts, model, temperature, and dice luck below.
         </p>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>Player Name</Label>
-            <Input
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label>Region</Label>
-            <Select value={region} onValueChange={setRegion}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="european">European</SelectItem>
-                <SelectItem value="worldwide">Worldwide</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Prompt variant selectors */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>System Prompt</Label>
-            <Select value={systemVariantId} onValueChange={setSystemVariantId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Default" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default (production)</SelectItem>
-                {systemVariants?.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.name}
-                    {v.is_live ? " (LIVE)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Turn Prompt</Label>
-            <Select value={turnVariantId} onValueChange={setTurnVariantId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Default" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default (production)</SelectItem>
-                {turnVariants?.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.name}
-                    {v.is_live ? " (LIVE)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
+        {configPanel}
         <Button onClick={handleStart} disabled={isLoading}>
           <Play className="h-4 w-4 mr-1" /> Start Quick Play
         </Button>
@@ -206,8 +351,31 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
     );
   }
 
+  // Game in progress
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      {/* Collapsible config panel */}
+      <Collapsible open={configOpen} onOpenChange={setConfigOpen}>
+        <CollapsibleTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-between text-xs"
+          >
+            <span className="flex items-center gap-1">
+              <Settings2 className="h-3 w-3" />
+              Session Parameters
+            </span>
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${configOpen ? "rotate-180" : ""}`}
+            />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          {configPanel}
+        </CollapsibleContent>
+      </Collapsible>
+
       {/* Game state header */}
       {gameState && (
         <Card>
@@ -224,15 +392,27 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
                 </span>
               )}
             </div>
-            {lastSnapshotId && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onBranchSnapshot?.(lastSnapshotId!)}
-              >
-                <GitBranch className="h-3 w-3 mr-1" /> Branch Here
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {diceRoll > 0 && (
+                <Badge variant="outline" className="text-[10px]">
+                  Dice: {diceRoll}
+                </Badge>
+              )}
+              {model && model !== "default" && (
+                <Badge variant="outline" className="text-[10px]">
+                  {models?.find((m) => m.id === model)?.label || model}
+                </Badge>
+              )}
+              {lastSnapshotId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onBranchSnapshot?.(lastSnapshotId!)}
+                >
+                  <GitBranch className="h-3 w-3 mr-1" /> Branch Here
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -254,13 +434,20 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
 
       {/* Actions */}
       <div className="space-y-2">
-        {waitingFor === "enter_era" ||
-        waitingFor === "continue_to_era" ? (
-          <Button onClick={handleEnterEra} disabled={isLoading} className="w-full">
+        {waitingFor === "enter_era" || waitingFor === "continue_to_era" ? (
+          <Button
+            onClick={handleEnterEra}
+            disabled={isLoading}
+            className="w-full"
+          >
             Enter Era
           </Button>
         ) : waitingFor === "continue_to_next_era" ? (
-          <Button onClick={handleContinue} disabled={isLoading} className="w-full">
+          <Button
+            onClick={handleContinue}
+            disabled={isLoading}
+            className="w-full"
+          >
             Continue to Next Era
           </Button>
         ) : null}
@@ -291,7 +478,6 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
 function MessageDisplay({ message }: { message: GameMessage }) {
   const { type, data } = message;
 
-  // Only render relevant message types
   switch (type) {
     case "era_arrival":
       return (
@@ -309,7 +495,6 @@ function MessageDisplay({ message }: { message: GameMessage }) {
         </div>
       );
     case "narrative_chunk":
-      // Chunks are accumulated in streaming; for REST they appear individually
       return (
         <span className="text-sm whitespace-pre-wrap">{data.text}</span>
       );
