@@ -30,7 +30,7 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
 
 # Local imports
-from config import EUROPEAN_ERA_IDS, get_debug_era_id
+from config import EUROPEAN_ERA_IDS, get_debug_era_id, NARRATIVE_MODEL, PREMIUM_MODEL
 from game_state import GameState, GameMode, GamePhase, RegionPreference
 from time_machine import select_random_era, IndicatorState
 from fulfillment import parse_anchor_adjustments, strip_anchor_tags
@@ -147,13 +147,17 @@ class NarrativeEngine:
         """Get current conversation history for saving"""
         return self.messages.copy()
     
-    def generate_streaming(self, user_prompt: str) -> Generator[Dict, None, str]:
+    def generate_streaming(self, user_prompt: str, model: str = None) -> Generator[Dict, None, str]:
         """
         Generate narrative response with streaming.
         Yields message dicts, returns full response.
+
+        Args:
+            user_prompt: The prompt to send
+            model: Override model (defaults to NARRATIVE_MODEL for gameplay)
         """
         self.messages.append({"role": "user", "content": user_prompt})
-        
+
         if not self.client:
             response = self._demo_response(user_prompt)
             # Simulate streaming for demo mode
@@ -162,35 +166,40 @@ class NarrativeEngine:
                 chunk = word + (' ' if i < len(words) - 1 else '')
                 yield emit(MessageType.NARRATIVE_CHUNK, {"text": chunk})
         else:
-            response = yield from self._api_call_streaming()
-        
+            response = yield from self._api_call_streaming(model=model or NARRATIVE_MODEL)
+
         self.messages.append({"role": "assistant", "content": response})
         return response
-    
-    def generate(self, user_prompt: str) -> str:
-        """Generate narrative response (non-streaming)"""
+
+    def generate(self, user_prompt: str, model: str = None) -> str:
+        """Generate narrative response (non-streaming).
+
+        Args:
+            user_prompt: The prompt to send
+            model: Override model (defaults to PREMIUM_MODEL for one-time generations)
+        """
         self.messages.append({"role": "user", "content": user_prompt})
-        
+
         if not self.client:
             response = self._demo_response(user_prompt)
         else:
-            response = self._api_call()
-        
+            response = self._api_call(model=model or PREMIUM_MODEL)
+
         self.messages.append({"role": "assistant", "content": response})
         return response
     
-    def _api_call_streaming(self) -> Generator[Dict, None, str]:
+    def _api_call_streaming(self, model: str = NARRATIVE_MODEL) -> Generator[Dict, None, str]:
         """Make streaming API call, yield chunks, return full response"""
         response = ""
         buffer = ""
         in_hidden_tag = False
-        
+
         # Tags that should be hidden from the player
         hidden_tag_patterns = ['<anchors>', '<character_name>', '<key_npc>', '<wisdom>']
-        
+
         try:
             with self.client.messages.stream(
-                model="claude-sonnet-4-20250514",
+                model=model,
                 max_tokens=1500,
                 system=self.system_prompt,
                 messages=self.messages
@@ -248,11 +257,11 @@ class NarrativeEngine:
         
         return response
     
-    def _api_call(self) -> str:
+    def _api_call(self, model: str = PREMIUM_MODEL) -> str:
         """Make non-streaming API call"""
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=model,
                 max_tokens=1500,
                 system=self.system_prompt,
                 messages=self.messages
@@ -1182,12 +1191,12 @@ class GameAPI:
         
         yield emit(MessageType.LOADING, {"message": "Reality shifts..."})
         
-        # Generate departure narrative
+        # Generate departure narrative (premium model — leaving is emotionally weighted)
         prompt = get_leaving_prompt(self.state)
         response = ""
-        
+
         # Stream the narrative - capture full response from generator
-        generator = self.narrator.generate_streaming(prompt)
+        generator = self.narrator.generate_streaming(prompt, model=PREMIUM_MODEL)
         try:
             while True:
                 msg = next(generator)
@@ -1283,12 +1292,12 @@ class GameAPI:
         
         yield emit(MessageType.LOADING, {"message": "Your story concludes..."})
         
-        # Generate ending narrative
+        # Generate ending narrative (premium model for quality)
         prompt = get_staying_ending_prompt(self.state, self.current_era)
         response = ""
-        
+
         # Stream the narrative - capture full response from generator
-        generator = self.narrator.generate_streaming(prompt)
+        generator = self.narrator.generate_streaming(prompt, model=PREMIUM_MODEL)
         try:
             while True:
                 msg = next(generator)
@@ -1338,9 +1347,9 @@ class GameAPI:
             
             prompt = get_quit_ending_prompt(self.state, self.current_era)
             response = ""
-            
-            # Stream the narrative
-            generator = self.narrator.generate_streaming(prompt)
+
+            # Stream the narrative (premium model for quality)
+            generator = self.narrator.generate_streaming(prompt, model=PREMIUM_MODEL)
             try:
                 while True:
                     msg = next(generator)

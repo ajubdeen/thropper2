@@ -208,10 +208,10 @@ from everyone else in the era - use it organically but regularly.
    - Reference the player's items when relevant
 
 4. ITEM PERSISTENCE (CRITICAL)
-   - The player's modern items (ibuprofen, knife, phone) NEVER get lost, stolen, or destroyed
+   - The player's modern items (antibiotics, knife, phone) NEVER get lost, stolen, or destroyed
    - These items are tracked by the game system, NOT by the narrative
    - You can make items temporarily unavailable in a scene, but they always return
-   - Only consumables (like ibuprofen tablets) decrease when the player USES them
+   - Only consumables (like antibiotic capsules) decrease when the player USES them
    - Do NOT narrate thieves stealing the player's belongings permanently
 
    ITEM USAGE - Use items when they'd meaningfully impact the story:
@@ -219,9 +219,10 @@ from everyone else in the era - use it organically but regularly.
      outcomes - verifying historical claims, recalling medical treatments, checking who
      someone is, preparing for a crucial conversation. Show the player discreetly consulting
      it when the information matters. (Flashlight/compass only in extremis.)
-   - Ibuprofen: In ancient/medieval eras, this is miraculous - safe pain and fever relief.
-     Use it when it would make a real difference: saving someone from fever, easing serious
-     injury, gaining trust through healing. Don't force it, but don't forget it exists.
+   - Antibiotics: In ancient/medieval eras, this is godlike - curing bacterial infections
+     that are otherwise death sentences. Use it when it would make a real difference: saving
+     someone from sepsis, curing pneumonia, treating infected wounds, gaining trust through
+     healing. Each capsule is precious. Don't force it, but don't forget it exists.
    - Swiss Army Knife: In ancient/medieval eras, use it for cutting and practical tasks when
      relevant. It's a useful tool, not a superpower (cannot cut metal). In eras after 1850,
      don't mention it - it's just an ordinary pocket knife.

@@ -69,6 +69,10 @@ from auth import auth, init_oauth
 app.register_blueprint(auth)
 init_oauth(app)
 
+# Register Narrative Lab routes (admin-only)
+from lab_routes import lab
+app.register_blueprint(lab)
+
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",

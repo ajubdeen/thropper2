@@ -6,6 +6,17 @@ without touching game logic.
 """
 
 # =============================================================================
+# AI MODEL
+# =============================================================================
+
+# Claude model for turn-by-turn gameplay narration (speed matters)
+NARRATIVE_MODEL = "claude-sonnet-4-5-20250929"
+
+# Claude model for high-stakes, one-time generations (quality matters)
+# Used for: ending narratives, historian narratives, pullquotes
+PREMIUM_MODEL = "claude-opus-4-6"
+
+# =============================================================================
 # ERA REGIONS
 # =============================================================================
 
@@ -72,21 +83,21 @@ WINDOW_TIME_COMPRESSED = True
 
 STARTING_ITEMS = [
     {
-        "id": "ibuprofen",
-        "name": "Bottle of Ibuprofen",
-        "description": "100 tablets of 200mg ibuprofen",
-        "uses": 100,
-        "utility": "Reduce fever, ease pain, reduce inflammation",
-        "risk": "Can't cure infections, supplies run out, overdose danger",
+        "id": "antibiotics",
+        "name": "Bottle of Antibiotics",
+        "description": "60 capsules of 500mg amoxicillin",
+        "uses": 60,
+        "utility": "Cure bacterial infections, prevent wound sepsis, treat pneumonia and other deadly infections",
+        "risk": "Won't work on viruses, supplies run out, allergic reactions possible, misuse breeds resistance",
         "hooks": ["heal", "trade", "gain trust", "save someone important"],
         "from_era": None,  # Modern item
         "era_context": {
             # How remarkable is this item in different periods?
-            "ancient": "Miraculous - reliable pain/fever relief without opium. Seems like divine medicine.",
-            "medieval": "Very valuable - safer than available alternatives. Clean pills are unusual.",
-            "early_modern": "Valuable - still superior to most remedies, but less dramatic.",
-            "industrial": "Moderate - aspirin invented 1897, morphine common. Good but not miraculous.",
-            "modern": "Unremarkable - it's just over-the-counter medicine.",
+            "ancient": "Godlike - infections are the #1 killer. Curing a festering wound or pneumonia is indistinguishable from divine intervention.",
+            "medieval": "Miraculous - sepsis, plague wounds, childbed fever all treatable. Could literally change the course of a village.",
+            "early_modern": "Extraordinary - still no germ theory. Curing 'incurable' infections seems like sorcery or alchemy.",
+            "industrial": "Revolutionary - germ theory exists but antibiotics won't be discovered until 1928. Decades ahead of the science.",
+            "modern": "Unremarkable - it's just a common prescription antibiotic.",
         },
     },
     {

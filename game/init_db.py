@@ -119,6 +119,89 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- ==================== Narrative Lab Tables ====================
+
+-- Lab snapshots: captured game states for branching/comparison
+CREATE TABLE IF NOT EXISTS lab_snapshots (
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR NOT NULL,
+    label VARCHAR NOT NULL,
+    tags JSONB DEFAULT '[]',
+    game_state JSONB NOT NULL,
+    conversation_history JSONB DEFAULT '[]',
+    system_prompt TEXT,
+    era_id VARCHAR,
+    era_name VARCHAR,
+    era_year INTEGER,
+    era_location VARCHAR,
+    total_turns INTEGER DEFAULT 0,
+    phase VARCHAR,
+    player_name VARCHAR,
+    belonging_value INTEGER DEFAULT 0,
+    legacy_value INTEGER DEFAULT 0,
+    freedom_value INTEGER DEFAULT 0,
+    available_choices JSONB DEFAULT '[]',
+    source VARCHAR DEFAULT 'manual',
+    source_game_id VARCHAR,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lab_snapshots_user ON lab_snapshots(user_id);
+CREATE INDEX IF NOT EXISTS idx_lab_snapshots_era ON lab_snapshots(era_id);
+CREATE INDEX IF NOT EXISTS idx_lab_snapshots_tags ON lab_snapshots USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_lab_snapshots_created ON lab_snapshots(created_at DESC);
+
+-- Lab generations: every AI narrative generation with params and parsed results
+CREATE TABLE IF NOT EXISTS lab_generations (
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR NOT NULL,
+    snapshot_id VARCHAR NOT NULL REFERENCES lab_snapshots(id) ON DELETE CASCADE,
+    choice_id VARCHAR NOT NULL,
+    choice_text TEXT,
+    model VARCHAR NOT NULL,
+    system_prompt TEXT NOT NULL,
+    turn_prompt TEXT NOT NULL,
+    dice_roll INTEGER,
+    temperature REAL DEFAULT 1.0,
+    max_tokens INTEGER DEFAULT 1500,
+    raw_response TEXT NOT NULL,
+    narrative_text TEXT,
+    anchor_deltas JSONB,
+    parsed_npcs JSONB DEFAULT '[]',
+    parsed_wisdom VARCHAR,
+    parsed_character_name VARCHAR,
+    parsed_choices JSONB DEFAULT '[]',
+    rating INTEGER,
+    notes TEXT,
+    comparison_group VARCHAR,
+    comparison_label VARCHAR,
+    generation_time_ms INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lab_generations_user ON lab_generations(user_id);
+CREATE INDEX IF NOT EXISTS idx_lab_generations_snapshot ON lab_generations(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_lab_generations_comparison ON lab_generations(comparison_group);
+CREATE INDEX IF NOT EXISTS idx_lab_generations_rating ON lab_generations(rating);
+CREATE INDEX IF NOT EXISTS idx_lab_generations_model ON lab_generations(model);
+CREATE INDEX IF NOT EXISTS idx_lab_generations_created ON lab_generations(created_at DESC);
+
+-- Lab prompt variants: saved prompt template variations
+CREATE TABLE IF NOT EXISTS lab_prompt_variants (
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR NOT NULL,
+    name VARCHAR NOT NULL,
+    description TEXT,
+    prompt_type VARCHAR NOT NULL,
+    template TEXT NOT NULL,
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lab_prompts_user ON lab_prompt_variants(user_id);
+CREATE INDEX IF NOT EXISTS idx_lab_prompts_type ON lab_prompt_variants(prompt_type);
 """
 
 def init_db():

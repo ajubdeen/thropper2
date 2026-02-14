@@ -1,0 +1,397 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import type {
+  LabSnapshot,
+  LabGeneration,
+  LabPromptVariant,
+  LabEra,
+  LabModel,
+  LabConfig,
+  SaveEntry,
+  GenerateRequest,
+  BatchGenerateRequest,
+} from "@/types/lab";
+
+// ==================== Snapshots ====================
+
+export function useSnapshots(params?: {
+  era_id?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.era_id) searchParams.set("era_id", params.era_id);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const qs = searchParams.toString();
+
+  return useQuery<{ snapshots: LabSnapshot[]; total: number }>({
+    queryKey: ["/api/lab/snapshots", qs],
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/snapshots${qs ? `?${qs}` : ""}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+  });
+}
+
+export function useSnapshot(id: string | null) {
+  return useQuery<LabSnapshot>({
+    queryKey: ["/api/lab/snapshots", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/snapshots/${id}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    enabled: !!id,
+  });
+}
+
+export function useCreateSnapshot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Record<string, any>) => {
+      const res = await apiRequest("POST", "/api/lab/snapshots", data);
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/snapshots"] }),
+  });
+}
+
+export function useImportSnapshot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      user_id: string;
+      game_id: string;
+      label?: string;
+      tags?: string[];
+    }) => {
+      const res = await apiRequest("POST", "/api/lab/snapshots/from-save", data);
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/snapshots"] }),
+  });
+}
+
+export function useCreateSyntheticSnapshot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      label: string;
+      era_id: string;
+      total_turns?: number;
+      belonging?: number;
+      legacy?: number;
+      freedom?: number;
+      player_name?: string;
+      mode?: string;
+      region?: string;
+      tags?: string[];
+    }) => {
+      const res = await apiRequest("POST", "/api/lab/snapshots/synthetic", data);
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/snapshots"] }),
+  });
+}
+
+export function useUpdateSnapshot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: { id: string } & Record<string, any>) => {
+      const res = await apiRequest("PATCH", `/api/lab/snapshots/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/snapshots"] }),
+  });
+}
+
+export function useDeleteSnapshot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/lab/snapshots/${id}`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/snapshots"] }),
+  });
+}
+
+export function useAllSaves() {
+  return useQuery<SaveEntry[]>({
+    queryKey: ["/api/lab/saves"],
+    queryFn: async () => {
+      const res = await fetch("/api/lab/saves", { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+  });
+}
+
+// ==================== Generation ====================
+
+export function useGenerateNarrative() {
+  const qc = useQueryClient();
+  return useMutation<LabGeneration, Error, GenerateRequest>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/lab/generate", data);
+      return res.json();
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["/api/lab/generations"] }),
+  });
+}
+
+export function useGenerateBatch() {
+  const qc = useQueryClient();
+  return useMutation<
+    { comparison_group: string; generations: LabGeneration[] },
+    Error,
+    BatchGenerateRequest
+  >({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/lab/generate/batch", data);
+      return res.json();
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["/api/lab/generations"] }),
+  });
+}
+
+export function useGenerations(params?: {
+  snapshot_id?: string;
+  model?: string;
+  rating?: number;
+  comparison_group?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.snapshot_id)
+    searchParams.set("snapshot_id", params.snapshot_id);
+  if (params?.model) searchParams.set("model", params.model);
+  if (params?.rating !== undefined)
+    searchParams.set("rating", String(params.rating));
+  if (params?.comparison_group)
+    searchParams.set("comparison_group", params.comparison_group);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const qs = searchParams.toString();
+
+  return useQuery<{ generations: LabGeneration[]; total: number }>({
+    queryKey: ["/api/lab/generations", qs],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/lab/generations${qs ? `?${qs}` : ""}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+  });
+}
+
+export function useGeneration(id: string | null) {
+  return useQuery<LabGeneration>({
+    queryKey: ["/api/lab/generations", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/generations/${id}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    enabled: !!id,
+  });
+}
+
+export function useUpdateGeneration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: { id: string; rating?: number; notes?: string }) => {
+      const res = await apiRequest(
+        "PATCH",
+        `/api/lab/generations/${id}`,
+        data
+      );
+      return res.json();
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["/api/lab/generations"] }),
+  });
+}
+
+export function useDeleteGeneration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/lab/generations/${id}`);
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["/api/lab/generations"] }),
+  });
+}
+
+// ==================== Prompt Variants ====================
+
+export function usePromptVariants(promptType?: string) {
+  const qs = promptType ? `?prompt_type=${promptType}` : "";
+  return useQuery<LabPromptVariant[]>({
+    queryKey: ["/api/lab/prompts", promptType],
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/prompts${qs}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+  });
+}
+
+export function useCreatePromptVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      name: string;
+      description?: string;
+      prompt_type: string;
+      template: string;
+      is_default?: boolean;
+    }) => {
+      const res = await apiRequest("POST", "/api/lab/prompts", data);
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/prompts"] }),
+  });
+}
+
+export function useUpdatePromptVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: { id: string } & Record<string, any>) => {
+      const res = await apiRequest("PUT", `/api/lab/prompts/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/prompts"] }),
+  });
+}
+
+export function useDeletePromptVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/lab/prompts/${id}`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/prompts"] }),
+  });
+}
+
+// ==================== Utility ====================
+
+export function useEras() {
+  return useQuery<LabEra[]>({
+    queryKey: ["/api/lab/eras"],
+    queryFn: async () => {
+      const res = await fetch("/api/lab/eras", { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    staleTime: Infinity,
+  });
+}
+
+export function useModels() {
+  return useQuery<LabModel[]>({
+    queryKey: ["/api/lab/models"],
+    queryFn: async () => {
+      const res = await fetch("/api/lab/models", { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    staleTime: Infinity,
+  });
+}
+
+export function useLabConfig() {
+  return useQuery<LabConfig>({
+    queryKey: ["/api/lab/config"],
+    queryFn: async () => {
+      const res = await fetch("/api/lab/config", { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    staleTime: Infinity,
+  });
+}
+
+// ==================== Quick Play ====================
+
+export function useQuickPlayStart() {
+  return useMutation({
+    mutationFn: async (data?: {
+      player_name?: string;
+      region?: string;
+    }) => {
+      const res = await apiRequest("POST", "/api/lab/quickplay/start", data || {});
+      return res.json();
+    },
+  });
+}
+
+export function useQuickPlayEnterEra() {
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/lab/quickplay/${sessionId}/enter-era`
+      );
+      return res.json();
+    },
+  });
+}
+
+export function useQuickPlayChoose() {
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      choice,
+    }: {
+      sessionId: string;
+      choice: string;
+    }) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/lab/quickplay/${sessionId}/choose`,
+        { choice }
+      );
+      return res.json();
+    },
+  });
+}
+
+export function useQuickPlayContinue() {
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/lab/quickplay/${sessionId}/continue`
+      );
+      return res.json();
+    },
+  });
+}

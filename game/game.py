@@ -36,7 +36,7 @@ except ImportError:
     print("Note: anthropic package not installed. Running in demo mode.")
 
 # Local imports
-from config import TEXT_SPEED, SHOW_DEVICE_STATUS, MODES, EUROPEAN_ERA_IDS, get_debug_era_id
+from config import TEXT_SPEED, SHOW_DEVICE_STATUS, MODES, EUROPEAN_ERA_IDS, get_debug_era_id, NARRATIVE_MODEL, PREMIUM_MODEL
 from game_state import GameState, GameMode, GamePhase, RegionPreference
 from time_machine import TimeMachine, select_random_era, IndicatorState
 from fulfillment import parse_anchor_adjustments, strip_anchor_tags
@@ -202,7 +202,7 @@ class NarrativeEngine:
         
         try:
             with self.client.messages.stream(
-                model="claude-sonnet-4-20250514",
+                model=NARRATIVE_MODEL,
                 max_tokens=1500,
                 system=self.system_prompt,
                 messages=self.messages
