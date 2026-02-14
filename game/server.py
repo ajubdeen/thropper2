@@ -50,7 +50,7 @@ def emit(event: str, data: dict):
 # Determine static files directory
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
 
-app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='')
+app = Flask(__name__, static_folder=None)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET') or os.urandom(24).hex()
 
 # Session configuration - use Flask's secure signed cookie sessions
