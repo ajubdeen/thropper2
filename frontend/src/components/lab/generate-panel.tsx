@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,12 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { ChevronDown, Play, Loader2, Columns } from "lucide-react";
+import { Play, Loader2, Columns, Trash2 } from "lucide-react";
 import {
   useSnapshot,
   useModels,
@@ -29,6 +24,14 @@ import {
 } from "@/hooks/use-lab";
 import type { LabGeneration, LabChoice } from "@/types/lab";
 import GenerationResult from "./generation-result";
+
+function getLuckLabel(roll: number): string {
+  if (roll <= 5) return "Unlucky \u2014 complications arise";
+  if (roll <= 8) return "Slightly Unlucky \u2014 minor setbacks";
+  if (roll <= 12) return "Neutral \u2014 things go as expected";
+  if (roll <= 16) return "Lucky \u2014 better than expected";
+  return "Very Lucky \u2014 doors open";
+}
 
 interface Props {
   snapshotId: string | null;
@@ -47,13 +50,11 @@ export default function GeneratePanel({
   const [model, setModel] = useState<string>("");
   const [temperature, setTemperature] = useState(1.0);
   const [maxTokens, setMaxTokens] = useState(1500);
-  const [diceRoll, setDiceRoll] = useState<number | null>(null);
+  const [diceRoll, setDiceRoll] = useState(10);
   const [systemPromptOverride, setSystemPromptOverride] = useState("");
   const [turnPromptOverride, setTurnPromptOverride] = useState("");
-  const [promptsOpen, setPromptsOpen] = useState(false);
 
-  const [result, setResult] = useState<LabGeneration | null>(null);
-  const [batchResults, setBatchResults] = useState<LabGeneration[] | null>(null);
+  const [variants, setVariants] = useState<LabGeneration[]>([]);
 
   const generate = useGenerateNarrative();
   const generateBatch = useGenerateBatch();
@@ -75,11 +76,13 @@ export default function GeneratePanel({
   }
 
   const choices: LabChoice[] = snapshot.available_choices || [];
-  const effectiveModel = model || config?.default_model || "";
+
+  // Extract the seed narrative — last assistant message in conversation history
+  const seedNarrative = snapshot.conversation_history
+    ?.filter((m) => m.role === "assistant")
+    .pop()?.content;
 
   const handleGenerate = () => {
-    setResult(null);
-    setBatchResults(null);
     generate.mutate(
       {
         snapshot_id: snapshotId!,
@@ -87,26 +90,23 @@ export default function GeneratePanel({
         model: model || undefined,
         temperature,
         max_tokens: maxTokens,
-        dice_roll: diceRoll ?? undefined,
+        dice_roll: diceRoll,
         system_prompt: systemPromptOverride || undefined,
         turn_prompt: turnPromptOverride || undefined,
       },
-      { onSuccess: (data) => setResult(data) }
+      { onSuccess: (data) => setVariants((prev) => [...prev, data]) }
     );
   };
 
   const handleBatchGenerate = () => {
     if (!models?.length) return;
-    setResult(null);
-    setBatchResults(null);
 
-    // Generate one variant per available model with same settings
-    const variants = models.map((m) => ({
+    const batchVariants = models.map((m) => ({
       label: m.label,
       model: m.id,
       temperature,
       max_tokens: maxTokens,
-      dice_roll: diceRoll ?? undefined,
+      dice_roll: diceRoll,
       system_prompt: systemPromptOverride || undefined,
       turn_prompt: turnPromptOverride || undefined,
     }));
@@ -115,28 +115,44 @@ export default function GeneratePanel({
       {
         snapshot_id: snapshotId!,
         choice_id: selectedChoice,
-        variants,
+        variants: batchVariants,
       },
       {
         onSuccess: (data) => {
-          setBatchResults(data.generations);
+          setVariants((prev) => [...prev, ...data.generations]);
           onComparisonCreated?.(data.comparison_group);
         },
       }
     );
   };
 
+  const isPending = generate.isPending || generateBatch.isPending;
+
   return (
     <div className="space-y-4">
-      {/* Snapshot context */}
+      {/* Snapshot context + seed narrative */}
       <Card>
-        <CardContent className="p-3">
-          <p className="text-sm font-medium">{snapshot.label}</p>
-          <p className="text-xs text-muted-foreground">
-            {snapshot.era_name} &middot; Turn {snapshot.total_turns} &middot;{" "}
-            B:{snapshot.belonging_value} L:{snapshot.legacy_value} F:
-            {snapshot.freedom_value}
-          </p>
+        <CardContent className="p-3 space-y-2">
+          <div>
+            <p className="text-sm font-medium">{snapshot.label}</p>
+            <p className="text-xs text-muted-foreground">
+              {snapshot.era_name} &middot; Turn {snapshot.total_turns} &middot;{" "}
+              B:{snapshot.belonging_value} L:{snapshot.legacy_value} F:
+              {snapshot.freedom_value}
+            </p>
+          </div>
+          {seedNarrative && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Seed Narrative (Turn {snapshot.total_turns})
+              </p>
+              <ScrollArea className="max-h-[200px]">
+                <div className="text-xs whitespace-pre-wrap bg-muted/50 rounded p-2">
+                  {seedNarrative}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -208,72 +224,50 @@ export default function GeneratePanel({
             step={100}
           />
         </div>
-        <div>
+        <div className="col-span-2">
           <Label>
-            Dice Roll: {diceRoll === null ? "Random" : diceRoll}
+            Luck: {diceRoll}/20 — {getLuckLabel(diceRoll)}
           </Label>
           <Slider
-            value={[diceRoll ?? 10]}
+            value={[diceRoll]}
             onValueChange={([v]: number[]) => setDiceRoll(v)}
             min={1}
             max={20}
             step={1}
           />
-          {diceRoll !== null && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs p-0 h-auto"
-              onClick={() => setDiceRoll(null)}
-            >
-              Reset to random
-            </Button>
-          )}
         </div>
       </div>
 
-      {/* Prompt overrides */}
-      <Collapsible open={promptsOpen} onOpenChange={setPromptsOpen}>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="w-full justify-between">
-            Prompt Overrides
-            <ChevronDown
-              className={`h-4 w-4 transition-transform ${
-                promptsOpen ? "rotate-180" : ""
-              }`}
-            />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-3 mt-2">
-          <div>
-            <Label>System Prompt Override</Label>
-            <Textarea
-              placeholder="Leave empty to use default..."
-              value={systemPromptOverride}
-              onChange={(e) => setSystemPromptOverride(e.target.value)}
-              rows={4}
-              className="text-xs font-mono"
-            />
-          </div>
-          <div>
-            <Label>Turn Prompt Override</Label>
-            <Textarea
-              placeholder="Leave empty to use default..."
-              value={turnPromptOverride}
-              onChange={(e) => setTurnPromptOverride(e.target.value)}
-              rows={4}
-              className="text-xs font-mono"
-            />
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+      {/* Prompt overrides — always visible */}
+      <div className="space-y-3">
+        <div>
+          <Label>System Prompt Override</Label>
+          <Textarea
+            placeholder="Leave empty to use default..."
+            value={systemPromptOverride}
+            onChange={(e) => setSystemPromptOverride(e.target.value)}
+            rows={4}
+            className="text-xs font-mono"
+          />
+        </div>
+        <div>
+          <Label>Turn Prompt Override</Label>
+          <Textarea
+            placeholder="Leave empty to use default..."
+            value={turnPromptOverride}
+            onChange={(e) => setTurnPromptOverride(e.target.value)}
+            rows={4}
+            className="text-xs font-mono"
+          />
+        </div>
+      </div>
 
       {/* Action buttons */}
       <div className="flex gap-2">
         <Button
           className="flex-1"
           onClick={handleGenerate}
-          disabled={generate.isPending || generateBatch.isPending}
+          disabled={isPending}
         >
           {generate.isPending ? (
             <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -285,7 +279,7 @@ export default function GeneratePanel({
         <Button
           variant="secondary"
           onClick={handleBatchGenerate}
-          disabled={generate.isPending || generateBatch.isPending}
+          disabled={isPending}
         >
           {generateBatch.isPending ? (
             <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -301,25 +295,34 @@ export default function GeneratePanel({
           Error: {generate.error.message}
         </p>
       )}
+      {generateBatch.isError && (
+        <p className="text-sm text-destructive">
+          Error: {generateBatch.error.message}
+        </p>
+      )}
 
       <Separator />
 
-      {/* Results */}
-      {result && (
+      {/* Accumulated variants */}
+      {variants.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold mb-2">Result</h3>
-          <GenerationResult generation={result} />
-        </div>
-      )}
-
-      {batchResults && (
-        <div>
-          <h3 className="text-sm font-semibold mb-2">
-            Comparison ({batchResults.length} variants)
-          </h3>
-          <div className="grid grid-cols-1 gap-4">
-            {batchResults.map((gen) => (
-              <GenerationResult key={gen.id} generation={gen} />
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold">
+              Variants ({variants.length})
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground"
+              onClick={() => setVariants([])}
+            >
+              <Trash2 className="h-3 w-3 mr-1" />
+              Clear All
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {variants.map((gen) => (
+              <GenerationResult key={gen.id} generation={gen} compact />
             ))}
           </div>
         </div>
