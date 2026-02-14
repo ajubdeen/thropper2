@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,13 +15,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Play, Loader2, Columns, Trash2 } from "lucide-react";
+import {
+  Play,
+  Loader2,
+  Columns,
+  Trash2,
+  Save,
+  Rocket,
+  Check,
+} from "lucide-react";
 import {
   useSnapshot,
   useModels,
   useLabConfig,
   useGenerateNarrative,
   useGenerateBatch,
+  usePreviewPrompts,
+  useCreatePromptVariant,
+  usePushLive,
 } from "@/hooks/use-lab";
 import type { LabGeneration, LabChoice } from "@/types/lab";
 import GenerationResult from "./generation-result";
@@ -51,13 +63,67 @@ export default function GeneratePanel({
   const [temperature, setTemperature] = useState(1.0);
   const [maxTokens, setMaxTokens] = useState(1500);
   const [diceRoll, setDiceRoll] = useState(10);
-  const [systemPromptOverride, setSystemPromptOverride] = useState("");
-  const [turnPromptOverride, setTurnPromptOverride] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [turnPrompt, setTurnPrompt] = useState("");
+
+  // Track whether user has manually edited prompts (to avoid overwriting edits)
+  const userEditedSystem = useRef(false);
+  const userEditedTurn = useRef(false);
+
+  // Save state
+  const [savingSystem, setSavingSystem] = useState(false);
+  const [savingTurn, setSavingTurn] = useState(false);
+  const [systemVariantName, setSystemVariantName] = useState("");
+  const [turnVariantName, setTurnVariantName] = useState("");
+  const [savedSystemId, setSavedSystemId] = useState<string | null>(null);
+  const [savedTurnId, setSavedTurnId] = useState<string | null>(null);
+  const [pushedSystem, setPushedSystem] = useState(false);
+  const [pushedTurn, setPushedTurn] = useState(false);
 
   const [variants, setVariants] = useState<LabGeneration[]>([]);
 
   const generate = useGenerateNarrative();
   const generateBatch = useGenerateBatch();
+  const createVariant = useCreatePromptVariant();
+  const pushLive = usePushLive();
+
+  // Fetch the actual prompts that would be used
+  const { data: previewData } = usePreviewPrompts(
+    snapshotId,
+    selectedChoice,
+    diceRoll
+  );
+
+  // Pre-populate system prompt when preview data loads (only if user hasn't edited)
+  useEffect(() => {
+    if (previewData?.system_prompt && !userEditedSystem.current) {
+      setSystemPrompt(previewData.system_prompt);
+    }
+  }, [previewData?.system_prompt]);
+
+  // Pre-populate turn prompt when preview data loads (only if user hasn't edited)
+  useEffect(() => {
+    if (previewData?.turn_prompt && !userEditedTurn.current) {
+      setTurnPrompt(previewData.turn_prompt);
+    }
+  }, [previewData?.turn_prompt]);
+
+  // Reset edit flags when snapshot changes
+  useEffect(() => {
+    userEditedSystem.current = false;
+    userEditedTurn.current = false;
+    setSavedSystemId(null);
+    setSavedTurnId(null);
+    setSavingSystem(false);
+    setSavingTurn(false);
+    setPushedSystem(false);
+    setPushedTurn(false);
+  }, [snapshotId]);
+
+  // Reset turn edit flag when choice or dice roll changes
+  useEffect(() => {
+    userEditedTurn.current = false;
+  }, [selectedChoice, diceRoll]);
 
   if (!snapshotId) {
     return (
@@ -91,8 +157,8 @@ export default function GeneratePanel({
         temperature,
         max_tokens: maxTokens,
         dice_roll: diceRoll,
-        system_prompt: systemPromptOverride || undefined,
-        turn_prompt: turnPromptOverride || undefined,
+        system_prompt: systemPrompt || undefined,
+        turn_prompt: turnPrompt || undefined,
       },
       { onSuccess: (data) => setVariants((prev) => [...prev, data]) }
     );
@@ -107,8 +173,8 @@ export default function GeneratePanel({
       temperature,
       max_tokens: maxTokens,
       dice_roll: diceRoll,
-      system_prompt: systemPromptOverride || undefined,
-      turn_prompt: turnPromptOverride || undefined,
+      system_prompt: systemPrompt || undefined,
+      turn_prompt: turnPrompt || undefined,
     }));
 
     generateBatch.mutate(
@@ -124,6 +190,38 @@ export default function GeneratePanel({
         },
       }
     );
+  };
+
+  const handleSaveVariant = (promptType: "system" | "turn") => {
+    const template = promptType === "system" ? systemPrompt : turnPrompt;
+    const name =
+      promptType === "system"
+        ? systemVariantName || "System variant"
+        : turnVariantName || "Turn variant";
+
+    createVariant.mutate(
+      { name, prompt_type: promptType, template },
+      {
+        onSuccess: (data) => {
+          if (promptType === "system") {
+            setSavedSystemId(data.id);
+            setSavingSystem(false);
+          } else {
+            setSavedTurnId(data.id);
+            setSavingTurn(false);
+          }
+        },
+      }
+    );
+  };
+
+  const handlePushLive = (variantId: string, promptType: "system" | "turn") => {
+    pushLive.mutate(variantId, {
+      onSuccess: () => {
+        if (promptType === "system") setPushedSystem(true);
+        else setPushedTurn(true);
+      },
+    });
   };
 
   const isPending = generate.isPending || generateBatch.isPending;
@@ -238,28 +336,178 @@ export default function GeneratePanel({
         </div>
       </div>
 
-      {/* Prompt overrides — always visible */}
-      <div className="space-y-3">
-        <div>
-          <Label>System Prompt Override</Label>
-          <Textarea
-            placeholder="Leave empty to use default..."
-            value={systemPromptOverride}
-            onChange={(e) => setSystemPromptOverride(e.target.value)}
-            rows={4}
-            className="text-xs font-mono"
-          />
+      {/* System Prompt */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>System Prompt</Label>
+          <div className="flex items-center gap-1">
+            {savedSystemId ? (
+              <>
+                {pushedSystem ? (
+                  <Badge variant="default" className="text-[10px]">
+                    <Check className="h-3 w-3 mr-1" />
+                    Live
+                  </Badge>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={() => handlePushLive(savedSystemId, "system")}
+                    disabled={pushLive.isPending}
+                  >
+                    <Rocket className="h-3 w-3 mr-1" />
+                    Push Live
+                  </Button>
+                )}
+                <Badge variant="secondary" className="text-[10px]">
+                  Saved
+                </Badge>
+              </>
+            ) : savingSystem ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={systemVariantName}
+                  onChange={(e) => setSystemVariantName(e.target.value)}
+                  placeholder="Variant name..."
+                  className="h-6 text-xs w-32"
+                />
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => handleSaveVariant("system")}
+                  disabled={createVariant.isPending}
+                >
+                  {createVariant.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    "Save"
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => setSavingSystem(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                onClick={() => {
+                  setSystemVariantName("");
+                  setSavingSystem(true);
+                }}
+              >
+                <Save className="h-3 w-3 mr-1" />
+                Save as Variant
+              </Button>
+            )}
+          </div>
         </div>
-        <div>
-          <Label>Turn Prompt Override</Label>
-          <Textarea
-            placeholder="Leave empty to use default..."
-            value={turnPromptOverride}
-            onChange={(e) => setTurnPromptOverride(e.target.value)}
-            rows={4}
-            className="text-xs font-mono"
-          />
+        <Textarea
+          value={systemPrompt}
+          onChange={(e) => {
+            setSystemPrompt(e.target.value);
+            userEditedSystem.current = true;
+            setSavedSystemId(null);
+            setPushedSystem(false);
+          }}
+          rows={12}
+          className="text-xs font-mono"
+        />
+      </div>
+
+      {/* Turn Prompt */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>Turn Prompt</Label>
+          <div className="flex items-center gap-1">
+            {savedTurnId ? (
+              <>
+                {pushedTurn ? (
+                  <Badge variant="default" className="text-[10px]">
+                    <Check className="h-3 w-3 mr-1" />
+                    Live
+                  </Badge>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={() => handlePushLive(savedTurnId, "turn")}
+                    disabled={pushLive.isPending}
+                  >
+                    <Rocket className="h-3 w-3 mr-1" />
+                    Push Live
+                  </Button>
+                )}
+                <Badge variant="secondary" className="text-[10px]">
+                  Saved
+                </Badge>
+              </>
+            ) : savingTurn ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={turnVariantName}
+                  onChange={(e) => setTurnVariantName(e.target.value)}
+                  placeholder="Variant name..."
+                  className="h-6 text-xs w-32"
+                />
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => handleSaveVariant("turn")}
+                  disabled={createVariant.isPending}
+                >
+                  {createVariant.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    "Save"
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => setSavingTurn(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                onClick={() => {
+                  setTurnVariantName("");
+                  setSavingTurn(true);
+                }}
+              >
+                <Save className="h-3 w-3 mr-1" />
+                Save as Variant
+              </Button>
+            )}
+          </div>
         </div>
+        <Textarea
+          value={turnPrompt}
+          onChange={(e) => {
+            setTurnPrompt(e.target.value);
+            userEditedTurn.current = true;
+            setSavedTurnId(null);
+            setPushedTurn(false);
+          }}
+          rows={8}
+          className="text-xs font-mono"
+        />
       </div>
 
       {/* Action buttons */}

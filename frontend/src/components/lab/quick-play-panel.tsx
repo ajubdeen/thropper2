@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -19,6 +18,7 @@ import {
   useQuickPlayEnterEra,
   useQuickPlayChoose,
   useQuickPlayContinue,
+  usePromptVariants,
 } from "@/hooks/use-lab";
 
 interface GameMessage {
@@ -34,6 +34,8 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [playerName, setPlayerName] = useState("Lab Tester");
   const [region, setRegion] = useState("european");
+  const [systemVariantId, setSystemVariantId] = useState<string>("");
+  const [turnVariantId, setTurnVariantId] = useState<string>("");
   const [messages, setMessages] = useState<GameMessage[]>([]);
   const [choices, setChoices] = useState<Array<{ id: string; text: string }>>(
     []
@@ -41,6 +43,9 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
   const [lastSnapshotId, setLastSnapshotId] = useState<string | null>(null);
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const [gameState, setGameState] = useState<Record<string, any> | null>(null);
+
+  const { data: systemVariants } = usePromptVariants("system");
+  const { data: turnVariants } = usePromptVariants("turn");
 
   const startMutation = useQuickPlayStart();
   const enterEraMutation = useQuickPlayEnterEra();
@@ -86,7 +91,12 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
 
   const handleStart = () => {
     startMutation.mutate(
-      { player_name: playerName, region },
+      {
+        player_name: playerName,
+        region,
+        system_prompt_variant_id: systemVariantId || undefined,
+        turn_prompt_variant_id: turnVariantId || undefined,
+      },
       {
         onSuccess: (data) => {
           setSessionId(data.session_id);
@@ -150,6 +160,45 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
             </Select>
           </div>
         </div>
+
+        {/* Prompt variant selectors */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label>System Prompt</Label>
+            <Select value={systemVariantId} onValueChange={setSystemVariantId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default (production)</SelectItem>
+                {systemVariants?.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name}
+                    {v.is_live ? " (LIVE)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Turn Prompt</Label>
+            <Select value={turnVariantId} onValueChange={setTurnVariantId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default (production)</SelectItem>
+                {turnVariants?.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name}
+                    {v.is_live ? " (LIVE)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <Button onClick={handleStart} disabled={isLoading}>
           <Play className="h-4 w-4 mr-1" /> Start Quick Play
         </Button>

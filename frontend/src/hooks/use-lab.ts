@@ -427,6 +427,30 @@ export function useLabConfig() {
   });
 }
 
+export function usePreviewPrompts(
+  snapshotId: string | null,
+  choiceId: string,
+  diceRoll: number
+) {
+  const qs = new URLSearchParams({
+    choice_id: choiceId,
+    dice_roll: String(diceRoll),
+  }).toString();
+
+  return useQuery<{ system_prompt: string; turn_prompt: string }>({
+    queryKey: ["/api/lab/snapshots", snapshotId, "prompts", choiceId, diceRoll],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/lab/snapshots/${snapshotId}/prompts?${qs}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    enabled: !!snapshotId,
+  });
+}
+
 // ==================== Quick Play ====================
 
 export function useQuickPlayStart() {
@@ -434,6 +458,8 @@ export function useQuickPlayStart() {
     mutationFn: async (data?: {
       player_name?: string;
       region?: string;
+      system_prompt_variant_id?: string;
+      turn_prompt_variant_id?: string;
     }) => {
       const res = await apiRequest("POST", "/api/lab/quickplay/start", data || {});
       return res.json();

@@ -13,6 +13,7 @@ from game_api import GameAPI
 from fulfillment import strip_anchor_tags
 from event_parsing import strip_event_tags
 import lab_service
+import prompt_overrides
 
 logger = logging.getLogger(__name__)
 
@@ -24,21 +25,41 @@ class QuickPlaySession:
     """Wraps GameAPI for REST-based quick play with auto-snapshotting."""
 
     def __init__(self, session_id: str, user_id: str, player_name: str = "Lab Tester",
-                 region: str = "european"):
+                 region: str = "european",
+                 system_prompt_override: str = None,
+                 turn_prompt_override: str = None):
         self.session_id = session_id
         self.user_id = user_id
         self.api = GameAPI(user_id=user_id)
         self.turn_count = 0
         self.snapshot_ids: List[str] = []
+        self.system_prompt_override = system_prompt_override
+        self.turn_prompt_override = turn_prompt_override
 
         # Run through setup synchronously
         list(self.api.start_game())
         list(self.api.set_player_name(player_name))
         list(self.api.set_region(region))
 
+    def _apply_system_override(self):
+        """Apply system prompt override to the narrator if set."""
+        if self.system_prompt_override and self.api.narrator:
+            self.api.narrator.system_prompt = self.system_prompt_override
+
+    def _push_turn_override(self):
+        """Temporarily push turn template override into the cache."""
+        if self.turn_prompt_override:
+            prompt_overrides._active_overrides["turn"] = self.turn_prompt_override
+
+    def _pop_turn_override(self):
+        """Revert turn template override from the cache."""
+        if self.turn_prompt_override:
+            prompt_overrides._active_overrides.pop("turn", None)
+
     def enter_era(self) -> Dict[str, Any]:
         """Enter the first/next era. Returns messages and auto-snapshot."""
         messages = list(self.api.enter_first_era())
+        self._apply_system_override()
         snapshot_id = self._auto_snapshot("arrival")
         return {
             'messages': messages,
@@ -49,7 +70,12 @@ class QuickPlaySession:
     def choose(self, choice: str) -> Dict[str, Any]:
         """Make a choice. Returns messages and auto-snapshot."""
         self.turn_count += 1
-        messages = list(self.api.make_choice(choice))
+        self._apply_system_override()
+        self._push_turn_override()
+        try:
+            messages = list(self.api.make_choice(choice))
+        finally:
+            self._pop_turn_override()
         snapshot_id = self._auto_snapshot(f"turn-{self.turn_count}")
         return {
             'messages': messages,
@@ -60,6 +86,7 @@ class QuickPlaySession:
     def continue_to_next_era(self) -> Dict[str, Any]:
         """Continue after departure."""
         messages = list(self.api.continue_to_next_era())
+        self._apply_system_override()
         snapshot_id = self._auto_snapshot("new-era")
         return {
             'messages': messages,
@@ -83,7 +110,7 @@ class QuickPlaySession:
 
             snapshot = lab_service.create_snapshot_from_state(
                 user_id=self.user_id,
-                label=f"Quick Play — {label_suffix}",
+                label=f"Quick Play \u2014 {label_suffix}",
                 tags=['quick_play', self.session_id],
                 game_state_dict=state_dict,
                 conversation_history=conversation_history,
@@ -101,10 +128,16 @@ class QuickPlaySession:
 
 
 def create_session(user_id: str, player_name: str = "Lab Tester",
-                   region: str = "european") -> Dict[str, Any]:
+                   region: str = "european",
+                   system_prompt_override: str = None,
+                   turn_prompt_override: str = None) -> Dict[str, Any]:
     """Create a new quick play session."""
     session_id = str(uuid.uuid4())
-    session = QuickPlaySession(session_id, user_id, player_name, region)
+    session = QuickPlaySession(
+        session_id, user_id, player_name, region,
+        system_prompt_override=system_prompt_override,
+        turn_prompt_override=turn_prompt_override,
+    )
     _sessions[session_id] = session
     return {
         'session_id': session_id,

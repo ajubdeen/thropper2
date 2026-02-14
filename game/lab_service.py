@@ -415,6 +415,41 @@ def render_default_prompt(prompt_type: str, era_id: str = None,
     }
 
 
+def preview_prompts(snapshot_id: str, choice_id: str, dice_roll: int = 10) -> Dict[str, str]:
+    """
+    Preview the actual system_prompt and turn_prompt that would be sent to Claude
+    for a given snapshot, choice, and dice roll.
+    """
+    snapshot = lab_db.get_snapshot(snapshot_id)
+    if not snapshot:
+        raise ValueError(f"Snapshot not found: {snapshot_id}")
+
+    game_state = GameState.from_save_dict(snapshot['game_state'])
+    era_id = snapshot.get('era_id')
+    era = get_era_by_id(era_id) if era_id else None
+
+    # System prompt (same fallback as generate_narrative)
+    if snapshot.get('system_prompt'):
+        system_prompt = snapshot['system_prompt']
+    elif era:
+        system_prompt = get_system_prompt(game_state, era)
+    else:
+        system_prompt = ""
+
+    # Turn prompt
+    choice_text = choice_id
+    for c in snapshot.get('available_choices', []):
+        if c.get('id', '').upper() == choice_id.upper():
+            choice_text = c.get('text', choice_id)
+            break
+    turn_prompt = get_turn_prompt(game_state, choice_text, dice_roll, era) if era else ""
+
+    return {
+        'system_prompt': system_prompt,
+        'turn_prompt': turn_prompt,
+    }
+
+
 # ==================== Utility ====================
 
 def get_all_eras() -> List[Dict[str, Any]]:

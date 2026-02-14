@@ -179,6 +179,22 @@ def delete_snapshot(snapshot_id):
         return jsonify({'error': str(e)}), 500
 
 
+@lab.route('/snapshots/<snapshot_id>/prompts', methods=['GET'])
+@require_admin
+def preview_snapshot_prompts(snapshot_id):
+    """Preview the system and turn prompts that would be used for this snapshot."""
+    try:
+        choice_id = request.args.get('choice_id', 'A')
+        dice_roll = int(request.args.get('dice_roll', 10))
+        result = lab_service.preview_prompts(snapshot_id, choice_id, dice_roll)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Preview prompts error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @lab.route('/saves', methods=['GET'])
 @require_admin
 def list_all_saves():
@@ -594,10 +610,25 @@ def quickplay_start():
     """Start a new quick play session."""
     try:
         data = request.json or {}
+
+        # Resolve prompt variant IDs to template text
+        system_prompt_override = None
+        turn_prompt_override = None
+        if data.get('system_prompt_variant_id'):
+            variant = lab_db.get_prompt_variant(data['system_prompt_variant_id'])
+            if variant:
+                system_prompt_override = variant['template']
+        if data.get('turn_prompt_variant_id'):
+            variant = lab_db.get_prompt_variant(data['turn_prompt_variant_id'])
+            if variant:
+                turn_prompt_override = variant['template']
+
         result = lab_quickplay.create_session(
             user_id=session['user_id'],
             player_name=data.get('player_name', 'Lab Tester'),
             region=data.get('region', 'european'),
+            system_prompt_override=system_prompt_override,
+            turn_prompt_override=turn_prompt_override,
         )
         return jsonify(result), 201
     except Exception as e:
