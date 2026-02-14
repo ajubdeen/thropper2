@@ -437,7 +437,12 @@ export function usePreviewPrompts(
     dice_roll: String(diceRoll),
   }).toString();
 
-  return useQuery<{ system_prompt: string; turn_prompt: string }>({
+  return useQuery<{
+    system_template: string;
+    system_variables: Record<string, string>;
+    turn_template: string;
+    turn_variables: Record<string, string>;
+  }>({
     queryKey: ["/api/lab/snapshots", snapshotId, "prompts", choiceId, diceRoll],
     queryFn: async () => {
       const res = await fetch(

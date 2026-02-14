@@ -42,9 +42,16 @@ class QuickPlaySession:
         list(self.api.set_region(region))
 
     def _apply_system_override(self):
-        """Apply system prompt override to the narrator if set."""
+        """Apply system prompt override to the narrator if set.
+        Renders the template with current game state variables first."""
         if self.system_prompt_override and self.api.narrator:
-            self.api.narrator.system_prompt = self.system_prompt_override
+            from prompts import _get_system_variables
+            era = self.api.current_era
+            if era:
+                variables = _get_system_variables(self.api.state, era)
+                self.api.narrator.system_prompt = self.system_prompt_override.format(**variables)
+            else:
+                self.api.narrator.system_prompt = self.system_prompt_override
 
     def _push_turn_override(self):
         """Temporarily push turn template override into the cache."""

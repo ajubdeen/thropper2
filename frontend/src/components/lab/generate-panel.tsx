@@ -94,19 +94,19 @@ export default function GeneratePanel({
     diceRoll
   );
 
-  // Pre-populate system prompt when preview data loads (only if user hasn't edited)
+  // Pre-populate system template when preview data loads (only if user hasn't edited)
   useEffect(() => {
-    if (previewData?.system_prompt && !userEditedSystem.current) {
-      setSystemPrompt(previewData.system_prompt);
+    if (previewData?.system_template && !userEditedSystem.current) {
+      setSystemPrompt(previewData.system_template);
     }
-  }, [previewData?.system_prompt]);
+  }, [previewData?.system_template]);
 
-  // Pre-populate turn prompt when preview data loads (only if user hasn't edited)
+  // Pre-populate turn template when preview data loads (only if user hasn't edited)
   useEffect(() => {
-    if (previewData?.turn_prompt && !userEditedTurn.current) {
-      setTurnPrompt(previewData.turn_prompt);
+    if (previewData?.turn_template && !userEditedTurn.current) {
+      setTurnPrompt(previewData.turn_template);
     }
-  }, [previewData?.turn_prompt]);
+  }, [previewData?.turn_template]);
 
   // Reset edit flags when snapshot changes
   useEffect(() => {
@@ -421,6 +421,31 @@ export default function GeneratePanel({
           rows={12}
           className="text-xs font-mono"
         />
+        {previewData?.system_variables &&
+          Object.keys(previewData.system_variables).length > 0 && (
+            <details className="text-xs">
+              <summary className="text-muted-foreground cursor-pointer">
+                Template Variables (
+                {Object.keys(previewData.system_variables).length})
+              </summary>
+              <div className="mt-1 space-y-1 bg-muted/50 rounded p-2 max-h-[200px] overflow-auto">
+                {Object.entries(previewData.system_variables).map(
+                  ([key, value]) => (
+                    <div key={key} className="flex gap-1">
+                      <span className="font-mono text-primary shrink-0">{`{${key}}`}</span>
+                      <span className="text-muted-foreground shrink-0">
+                        {" = "}
+                      </span>
+                      <span className="break-all text-muted-foreground">
+                        {String(value).slice(0, 200)}
+                        {String(value).length > 200 ? "..." : ""}
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            </details>
+          )}
       </div>
 
       {/* Turn Prompt */}
@@ -508,6 +533,31 @@ export default function GeneratePanel({
           rows={8}
           className="text-xs font-mono"
         />
+        {previewData?.turn_variables &&
+          Object.keys(previewData.turn_variables).length > 0 && (
+            <details className="text-xs">
+              <summary className="text-muted-foreground cursor-pointer">
+                Template Variables (
+                {Object.keys(previewData.turn_variables).length})
+              </summary>
+              <div className="mt-1 space-y-1 bg-muted/50 rounded p-2 max-h-[200px] overflow-auto">
+                {Object.entries(previewData.turn_variables).map(
+                  ([key, value]) => (
+                    <div key={key} className="flex gap-1">
+                      <span className="font-mono text-primary shrink-0">{`{${key}}`}</span>
+                      <span className="text-muted-foreground shrink-0">
+                        {" = "}
+                      </span>
+                      <span className="break-all text-muted-foreground">
+                        {String(value).slice(0, 200)}
+                        {String(value).length > 200 ? "..." : ""}
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            </details>
+          )}
       </div>
 
       {/* Action buttons */}

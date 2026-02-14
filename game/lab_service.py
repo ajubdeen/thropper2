@@ -23,7 +23,9 @@ from eras import ERAS, get_era_by_id
 from prompts import (
     get_system_prompt, get_arrival_prompt, get_turn_prompt,
     get_window_prompt, get_staying_ending_prompt, get_leaving_prompt,
-    get_historian_narrative_prompt, get_quit_ending_prompt
+    get_historian_narrative_prompt, get_quit_ending_prompt,
+    BASELINE_TEMPLATES, TEMPLATE_VARIABLE_FUNCTIONS,
+    _get_system_variables, _get_turn_variables,
 )
 from fulfillment import parse_anchor_adjustments, strip_anchor_tags
 from event_parsing import (
@@ -253,7 +255,9 @@ def generate_narrative(user_id: str, snapshot_id: str, choice_id: str,
 
     # 4. Build system prompt
     if system_prompt_override:
-        system_prompt = system_prompt_override
+        # Override is a template with {placeholders} — render with variables
+        sys_vars = _get_system_variables(game_state, era) if era else {}
+        system_prompt = system_prompt_override.format(**sys_vars)
     elif snapshot.get('system_prompt'):
         system_prompt = snapshot['system_prompt']
     elif era:
@@ -263,15 +267,17 @@ def generate_narrative(user_id: str, snapshot_id: str, choice_id: str,
 
     # 5. Build turn prompt
     roll = dice_roll if dice_roll is not None else random.randint(1, 20)
+    # Find the choice text from available choices
+    choice_text = choice_id
+    for c in snapshot.get('available_choices', []):
+        if c.get('id', '').upper() == choice_id.upper():
+            choice_text = c.get('text', choice_id)
+            break
     if turn_prompt_override:
-        turn_prompt = turn_prompt_override
+        # Override is a template with {placeholders} — render with variables
+        turn_vars = _get_turn_variables(game_state, choice_text, roll, era)
+        turn_prompt = turn_prompt_override.format(**turn_vars)
     else:
-        # Find the choice text from available choices
-        choice_text = choice_id
-        for c in snapshot.get('available_choices', []):
-            if c.get('id', '').upper() == choice_id.upper():
-                choice_text = c.get('text', choice_id)
-                break
         turn_prompt = get_turn_prompt(game_state, choice_text, roll, era)
 
     # 6. Build messages (conversation history + new turn prompt)
@@ -415,11 +421,14 @@ def render_default_prompt(prompt_type: str, era_id: str = None,
     }
 
 
-def preview_prompts(snapshot_id: str, choice_id: str, dice_roll: int = 10) -> Dict[str, str]:
+def preview_prompts(snapshot_id: str, choice_id: str, dice_roll: int = 10) -> Dict[str, Any]:
     """
-    Preview the actual system_prompt and turn_prompt that would be sent to Claude
-    for a given snapshot, choice, and dice roll.
+    Preview the template and variables for system and turn prompts.
+    Returns templates with {placeholders} and the variable values separately,
+    so the frontend can show the editable template and the variable context.
     """
+    from prompt_overrides import get_active_template
+
     snapshot = lab_db.get_snapshot(snapshot_id)
     if not snapshot:
         raise ValueError(f"Snapshot not found: {snapshot_id}")
@@ -428,25 +437,24 @@ def preview_prompts(snapshot_id: str, choice_id: str, dice_roll: int = 10) -> Di
     era_id = snapshot.get('era_id')
     era = get_era_by_id(era_id) if era_id else None
 
-    # System prompt (same fallback as generate_narrative)
-    if snapshot.get('system_prompt'):
-        system_prompt = snapshot['system_prompt']
-    elif era:
-        system_prompt = get_system_prompt(game_state, era)
-    else:
-        system_prompt = ""
+    # System template + variables
+    sys_template = get_active_template("system") or BASELINE_TEMPLATES.get("system", "")
+    sys_variables = _get_system_variables(game_state, era) if era else {}
 
-    # Turn prompt
+    # Turn template + variables
     choice_text = choice_id
     for c in snapshot.get('available_choices', []):
         if c.get('id', '').upper() == choice_id.upper():
             choice_text = c.get('text', choice_id)
             break
-    turn_prompt = get_turn_prompt(game_state, choice_text, dice_roll, era) if era else ""
+    turn_template = get_active_template("turn") or BASELINE_TEMPLATES.get("turn", "")
+    turn_variables = _get_turn_variables(game_state, choice_text, dice_roll, era) if era else {}
 
     return {
-        'system_prompt': system_prompt,
-        'turn_prompt': turn_prompt,
+        'system_template': sys_template,
+        'system_variables': sys_variables,
+        'turn_template': turn_template,
+        'turn_variables': turn_variables,
     }
 
 
