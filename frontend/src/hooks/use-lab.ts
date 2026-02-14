@@ -10,6 +10,8 @@ import type {
   SaveEntry,
   GenerateRequest,
   BatchGenerateRequest,
+  LiveStatus,
+  VersionHistoryEntry,
 } from "@/types/lab";
 
 // ==================== Snapshots ====================
@@ -298,6 +300,92 @@ export function useDeletePromptVariant() {
       await apiRequest("DELETE", `/api/lab/prompts/${id}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/lab/prompts"] }),
+  });
+}
+
+// ==================== Prompt Version Control ====================
+
+export function usePushLive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (variantId: string) => {
+      const res = await apiRequest("POST", `/api/lab/prompts/${variantId}/push`);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts"] });
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts/live"] });
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts/versions"] });
+    },
+  });
+}
+
+export function useRevertPrompt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (promptType: string) => {
+      const res = await apiRequest("POST", `/api/lab/prompts/revert/${promptType}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts"] });
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts/live"] });
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts/versions"] });
+    },
+  });
+}
+
+export function useLiveStatus() {
+  return useQuery<LiveStatus>({
+    queryKey: ["/api/lab/prompts/live"],
+    queryFn: async () => {
+      const res = await fetch("/api/lab/prompts/live", { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+  });
+}
+
+export function useVersionHistory(promptType: string | null) {
+  return useQuery<VersionHistoryEntry[]>({
+    queryKey: ["/api/lab/prompts/versions", promptType],
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/prompts/versions/${promptType}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    enabled: !!promptType,
+  });
+}
+
+export function useBaselinePrompt(promptType: string | null) {
+  return useQuery<{ prompt_type: string; template: string }>({
+    queryKey: ["/api/lab/prompts/baseline", promptType],
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/prompts/baseline/${promptType}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    enabled: !!promptType,
+    staleTime: Infinity,
+  });
+}
+
+export function useSeedBaselines() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/lab/prompts/seed-baselines");
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts"] });
+      qc.invalidateQueries({ queryKey: ["/api/lab/prompts/versions"] });
+    },
   });
 }
 

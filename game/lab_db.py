@@ -236,18 +236,23 @@ def delete_generation(generation_id: str) -> bool:
 # ==================== Prompt Variants ====================
 
 def save_prompt_variant(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a prompt variant. Returns the created row."""
+    """Create a prompt variant with version tracking. Returns the created row."""
     with get_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 INSERT INTO lab_prompt_variants
-                (user_id, name, description, prompt_type, template, is_default)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                (user_id, name, description, prompt_type, template, is_default,
+                 version_number, diff_vs_baseline, diff_vs_previous, change_summary)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
             """, (
                 data['user_id'], data['name'], data.get('description'),
                 data['prompt_type'], data['template'],
-                data.get('is_default', False)
+                data.get('is_default', False),
+                data.get('version_number', 1),
+                data.get('diff_vs_baseline'),
+                data.get('diff_vs_previous'),
+                data.get('change_summary'),
             ))
             return dict(cur.fetchone())
 
@@ -267,12 +272,12 @@ def list_prompt_variants(user_id: str, prompt_type: str = None) -> List[Dict[str
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             if prompt_type:
                 cur.execute(
-                    "SELECT * FROM lab_prompt_variants WHERE user_id = %s AND prompt_type = %s ORDER BY created_at DESC",
+                    "SELECT * FROM lab_prompt_variants WHERE user_id = %s AND prompt_type = %s ORDER BY version_number DESC, created_at DESC",
                     (user_id, prompt_type)
                 )
             else:
                 cur.execute(
-                    "SELECT * FROM lab_prompt_variants WHERE user_id = %s ORDER BY prompt_type, created_at DESC",
+                    "SELECT * FROM lab_prompt_variants WHERE user_id = %s ORDER BY prompt_type, version_number DESC, created_at DESC",
                     (user_id,)
                 )
             return [dict(r) for r in cur.fetchall()]
@@ -283,7 +288,8 @@ def update_prompt_variant(variant_id: str, updates: Dict[str, Any]) -> Optional[
     sets = ["updated_at = NOW()"]
     params = []
 
-    for field in ('name', 'description', 'template', 'is_default'):
+    for field in ('name', 'description', 'template', 'is_default',
+                  'diff_vs_baseline', 'diff_vs_previous', 'change_summary'):
         if field in updates:
             sets.append(f"{field} = %s")
             params.append(updates[field])
@@ -303,8 +309,128 @@ def update_prompt_variant(variant_id: str, updates: Dict[str, Any]) -> Optional[
 
 
 def delete_prompt_variant(variant_id: str) -> bool:
-    """Delete a prompt variant."""
+    """Delete a prompt variant (cannot delete baseline or live variants)."""
     with get_db() as conn:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Prevent deleting baseline or live variants
+            cur.execute(
+                "SELECT is_default, is_live FROM lab_prompt_variants WHERE id = %s",
+                (variant_id,)
+            )
+            row = cur.fetchone()
+            if row and (row.get('is_default') or row.get('is_live')):
+                return False
+
             cur.execute("DELETE FROM lab_prompt_variants WHERE id = %s", (variant_id,))
             return cur.rowcount > 0
+
+
+# ==================== Version Control ====================
+
+def get_next_version_number(user_id: str, prompt_type: str) -> int:
+    """Get the next version number for a prompt type."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT COALESCE(MAX(version_number), 0) + 1 as next_version FROM lab_prompt_variants WHERE user_id = %s AND prompt_type = %s",
+                (user_id, prompt_type)
+            )
+            return cur.fetchone()['next_version']
+
+
+def get_previous_version(user_id: str, prompt_type: str, before_version: int = None) -> Optional[Dict[str, Any]]:
+    """Get the most recent version before the given version number."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if before_version is not None:
+                cur.execute(
+                    """SELECT * FROM lab_prompt_variants
+                       WHERE user_id = %s AND prompt_type = %s AND version_number < %s AND NOT is_default
+                       ORDER BY version_number DESC LIMIT 1""",
+                    (user_id, prompt_type, before_version)
+                )
+            else:
+                cur.execute(
+                    """SELECT * FROM lab_prompt_variants
+                       WHERE user_id = %s AND prompt_type = %s AND NOT is_default
+                       ORDER BY version_number DESC LIMIT 1""",
+                    (user_id, prompt_type)
+                )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def get_live_variant(prompt_type: str) -> Optional[Dict[str, Any]]:
+    """Get the currently live variant for a prompt type (any user)."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM lab_prompt_variants WHERE prompt_type = %s AND is_live = TRUE LIMIT 1",
+                (prompt_type,)
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def push_variant_live(variant_id: str) -> Optional[Dict[str, Any]]:
+    """Mark a variant as live, un-marking any other live variant of the same type."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Get the variant to push
+            cur.execute("SELECT * FROM lab_prompt_variants WHERE id = %s", (variant_id,))
+            variant = cur.fetchone()
+            if not variant:
+                return None
+
+            prompt_type = variant['prompt_type']
+
+            # Un-mark any currently live variant of this type
+            cur.execute(
+                "UPDATE lab_prompt_variants SET is_live = FALSE WHERE prompt_type = %s AND is_live = TRUE",
+                (prompt_type,)
+            )
+
+            # Mark this variant as live
+            cur.execute(
+                "UPDATE lab_prompt_variants SET is_live = TRUE, updated_at = NOW() WHERE id = %s RETURNING *",
+                (variant_id,)
+            )
+            return dict(cur.fetchone())
+
+
+def revert_prompt_type(prompt_type: str) -> bool:
+    """Revert a prompt type to baseline by un-marking all live variants."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE lab_prompt_variants SET is_live = FALSE WHERE prompt_type = %s AND is_live = TRUE",
+                (prompt_type,)
+            )
+            return cur.rowcount > 0
+
+
+def get_version_history(user_id: str, prompt_type: str) -> List[Dict[str, Any]]:
+    """Get version history for a prompt type, ordered by version number."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id, name, description, prompt_type, version_number,
+                          is_default, is_live, change_summary, created_at, updated_at
+                   FROM lab_prompt_variants
+                   WHERE user_id = %s AND prompt_type = %s
+                   ORDER BY version_number ASC""",
+                (user_id, prompt_type)
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
+def get_baseline_variant(user_id: str, prompt_type: str) -> Optional[Dict[str, Any]]:
+    """Get the baseline (is_default=TRUE) variant for a prompt type."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM lab_prompt_variants WHERE user_id = %s AND prompt_type = %s AND is_default = TRUE LIMIT 1",
+                (user_id, prompt_type)
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None

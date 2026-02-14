@@ -187,7 +187,7 @@ CREATE INDEX IF NOT EXISTS idx_lab_generations_rating ON lab_generations(rating)
 CREATE INDEX IF NOT EXISTS idx_lab_generations_model ON lab_generations(model);
 CREATE INDEX IF NOT EXISTS idx_lab_generations_created ON lab_generations(created_at DESC);
 
--- Lab prompt variants: saved prompt template variations
+-- Lab prompt variants: saved prompt template variations with version control
 CREATE TABLE IF NOT EXISTS lab_prompt_variants (
     id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
     user_id VARCHAR NOT NULL,
@@ -196,12 +196,28 @@ CREATE TABLE IF NOT EXISTS lab_prompt_variants (
     prompt_type VARCHAR NOT NULL,
     template TEXT NOT NULL,
     is_default BOOLEAN DEFAULT FALSE,
+    is_live BOOLEAN DEFAULT FALSE,
+    version_number INTEGER DEFAULT 1,
+    diff_vs_baseline TEXT,
+    diff_vs_previous TEXT,
+    change_summary TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_user ON lab_prompt_variants(user_id);
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_type ON lab_prompt_variants(prompt_type);
+CREATE INDEX IF NOT EXISTS idx_lab_prompts_live ON lab_prompt_variants(is_live) WHERE is_live = TRUE;
+"""
+
+MIGRATIONS = """
+-- Migration: Add version control columns to lab_prompt_variants
+ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS is_live BOOLEAN DEFAULT FALSE;
+ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS version_number INTEGER DEFAULT 1;
+ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS diff_vs_baseline TEXT;
+ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS diff_vs_previous TEXT;
+ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS change_summary TEXT;
+CREATE INDEX IF NOT EXISTS idx_lab_prompts_live ON lab_prompt_variants(is_live) WHERE is_live = TRUE;
 """
 
 def init_db():
@@ -213,7 +229,11 @@ def init_db():
     cur.execute(SCHEMA)
     conn.commit()
 
-    print("Done! Tables created successfully.")
+    print("Running migrations...")
+    cur.execute(MIGRATIONS)
+    conn.commit()
+
+    print("Done! Tables created/updated successfully.")
 
     cur.close()
     conn.close()

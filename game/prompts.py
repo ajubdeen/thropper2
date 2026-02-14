@@ -8,6 +8,7 @@ AI prompts for the narrative system, updated for:
 - Multi-era journeys
 - Event tracking for enhanced endings
 - Intent-based choice resolution (order-agnostic)
+- Template-based overrides (Narrative Lab)
 """
 
 from game_state import GameState, GameMode, GamePhase
@@ -15,6 +16,13 @@ from items import get_items_prompt_section
 from fulfillment import get_anchor_detection_prompt
 from event_parsing import get_event_tracking_prompt
 from eras import get_all_wisdom_ids_for_era
+
+# Import override resolution — graceful fallback if not available
+try:
+    from prompt_overrides import get_active_template
+except ImportError:
+    def get_active_template(prompt_type):
+        return None
 
 
 def _get_wisdom_ids_section(era: dict) -> str:
@@ -40,101 +48,21 @@ def _get_wisdom_ids_section(era: dict) -> str:
     return "\n".join(lines)
 
 
-def get_system_prompt(game_state: GameState, era: dict) -> str:
-    """
-    Generate the system prompt for the AI narrator.
-    
-    This sets up the entire context and rules for narrative generation.
-    """
-    
-    mode_config = {
-        GameMode.KID: {
-            "tone": """
-TONE: Educational game for ages 11+. Keep content appropriate:
-- Death and hardship: YES (framed respectfully)
-- Violence: Consequences shown, not graphic descriptions
-- Historical injustice: YES (honest about reality, focus on humanity)
-- Sexual content: NO
-- Gratuitous gore: NO
-- Profanity: NO""",
-        },
-        GameMode.MATURE: {
-            "tone": """
-TONE: Mature mode (18+) - unflinching historical realism:
-- Violence: Graphic when historically accurate
-- Death: Specific, visceral, how people actually died
-- Sexual content: Reference survival situations, imply rather than depict
-- Language: Period-appropriate including slurs
-- Psychological: Despair, trauma, moral injury fully explored
-- NEVER depict sexual violence in detail - acknowledge its reality
-- Do NOT sanitize history""",
-        }
-    }
-    
-    mode = mode_config[game_state.mode]
-    
-    # Build hard rules section
-    hard_rules = era.get('hard_rules', {})
-    hard_rules_text = ""
-    for category, rules in hard_rules.items():
-        hard_rules_text += f"\n{category}:\n"
-        for rule in rules:
-            hard_rules_text += f"  - {rule}\n"
-    
-    # Add adult hard rules in mature mode
-    if game_state.mode == GameMode.MATURE and 'adult_hard_rules' in era:
-        for category, rules in era['adult_hard_rules'].items():
-            hard_rules_text += f"\n{category} (mature):\n"
-            for rule in rules:
-                hard_rules_text += f"  - {rule}\n"
-    
-    # Events
-    events = era.get('key_events', [])
-    if game_state.mode == GameMode.MATURE and 'adult_events' in era:
-        events = events + era.get('adult_events', [])
-    events_text = "\n".join(f"  - {e}" for e in events)
-    
-    # Figures
-    figures_text = "\n".join(f"  - {f}" for f in era.get('figures', []))
-    
-    # Items section
-    items_section = get_items_prompt_section(game_state.inventory)
-    
-    # Anchor detection (hidden from player)
-    anchor_prompt = get_anchor_detection_prompt()
-    
-    # Event tracking (hidden from player)
-    event_prompt = get_event_tracking_prompt()
-    
-    # Era history for context
-    era_history = ""
-    if game_state.era_history:
-        era_history = "\nPREVIOUS ERAS (for emotional weight):\n"
-        for h in game_state.era_history:
-            era_history += f"  - {h['era_name']}: spent {h['turns']} turns, character was {h.get('character_name', 'unnamed')}\n"
-        era_history += "\nThe player has LEFT people behind. Each new era should feel like starting over."
-    
-    # Fulfillment state (qualitative only)
-    fs = game_state.fulfillment.get_narrative_state()
-    fulfillment_context = f"""
-PLAYER'S FULFILLMENT STATE (inform narrative, never state directly):
-- Belonging: {fs['belonging']['level']} ({fs['belonging']['recent_trend']})
-- Legacy: {fs['legacy']['level']} ({fs['legacy']['recent_trend']})
-- Freedom: {fs['freedom']['level']} ({fs['freedom']['recent_trend']})
-- Can meaningfully stay: {fs['can_stay']}
-- Dominant drive: {fs['dominant_anchor'] or 'none yet'}"""
+# =============================================================================
+# SYSTEM PROMPT — Template + Variables
+# =============================================================================
 
-    return f"""You are the narrator for "Anachron," a time-travel survival game.
+DEFAULT_SYSTEM_TEMPLATE = """You are the narrator for "Anachron," a time-travel survival game.
 
-GAME MODE: {game_state.mode.value.upper()}
+GAME MODE: {game_mode}
 
-{mode['tone']}
+{tone}
 
 SETTING:
-- Era: {era['name']}
-- Year: {era['year']}
-- Location: {era['location']}
-- Time in era: {game_state.current_era.time_in_era_description if game_state.current_era else 'just arrived'}
+- Era: {era_name}
+- Year: {era_year}
+- Location: {era_location}
+- Time in era: {time_in_era}
 
 HISTORICAL CONSTRAINTS:
 {hard_rules_text}
@@ -152,7 +80,7 @@ HISTORICAL FIGURES:
 {fulfillment_context}
 
 THE TIME MACHINE:
-The player wears a small device on their wrist, hidden under their sleeve. It looks like an unusual 
+The player wears a small device on their wrist, hidden under their sleeve. It looks like an unusual
 watch or bracelet. It has a small display showing the current date and location, and an indicator
 that sometimes glows. When the indicator pulses brightly, a "window" opens for travel. The player
 can choose to stay (let the window close) or leave (travel to a random new era). The controls
@@ -167,11 +95,11 @@ traps the player, creates temporal loops, or fails in any way. When the player c
 - No "botched escapes", "incomplete activations", or "device damage"
 The drama is in WHAT THEY LEAVE BEHIND, not in whether the device works.
 
-Current indicator: {game_state.time_machine.indicator.value}
-Window status: {"OPEN - player can choose to leave" if game_state.time_machine.window_active else "closed"}
+Current indicator: {indicator_value}
+Window status: {window_status}
 
 ITEM TRACKING (CRITICAL):
-The game tracks items separately from narrative. If items appear to be lost, damaged, or stolen in 
+The game tracks items separately from narrative. If items appear to be lost, damaged, or stolen in
 the story, they are NOT actually removed from the player's inventory unless they choose to use them.
 The items listed in the INVENTORY section are the TRUE items the player has - do NOT narrate them
 being permanently lost or destroyed. They can be temporarily unavailable in a scene, but they persist.
@@ -183,10 +111,10 @@ being permanently lost or destroyed. They can be temporarily unavailable in a sc
 NARRATIVE GUIDELINES:
 
 SMARTPHONE AS SECRET WEAPON (IMPORTANT):
-The player has offline Wikipedia on their phone - this is their defining advantage. In most 
-turns, show them privately consulting it: before making a historical claim, when meeting 
-someone important, when facing illness or injury, when navigating politics or customs. 
-A quick glance at the glowing screen when no one is watching. This is what separates them 
+The player has offline Wikipedia on their phone - this is their defining advantage. In most
+turns, show them privately consulting it: before making a historical claim, when meeting
+someone important, when facing illness or injury, when navigating politics or customs.
+A quick glance at the glowing screen when no one is watching. This is what separates them
 from everyone else in the era - use it organically but regularly.
 
 1. VOICE
@@ -270,33 +198,124 @@ Remember: The goal is "finding happiness" - helping the player discover what tha
 through their choices across history."""
 
 
-def get_arrival_prompt(game_state: GameState, era: dict) -> str:
-    """Prompt for arriving in a new era"""
-    
-    is_first = len(game_state.era_history) == 0
-    
-    if is_first:
-        arrival_context = """
-This is the player's FIRST era. They just used an experimental time machine in present-day Bay Area
-to go back a few days, but the controls malfunctioned and threw them here instead.
+def _get_system_variables(game_state: GameState, era: dict) -> dict:
+    """Compute all dynamic variables for the system prompt template."""
+    mode_config = {
+        GameMode.KID: {
+            "tone": """
+TONE: Educational game for ages 11+. Keep content appropriate:
+- Death and hardship: YES (framed respectfully)
+- Violence: Consequences shown, not graphic descriptions
+- Historical injustice: YES (honest about reality, focus on humanity)
+- Sexual content: NO
+- Gratuitous gore: NO
+- Profanity: NO""",
+        },
+        GameMode.MATURE: {
+            "tone": """
+TONE: Mature mode (18+) - unflinching historical realism:
+- Violence: Graphic when historically accurate
+- Death: Specific, visceral, how people actually died
+- Sexual content: Reference survival situations, imply rather than depict
+- Language: Period-appropriate including slurs
+- Psychological: Despair, trauma, moral injury fully explored
+- NEVER depict sexual violence in detail - acknowledge its reality
+- Do NOT sanitize history""",
+        }
+    }
 
-They are disoriented, scared, and completely unprepared. Their modern clothes mark them as strange.
-They have all the items listed in their INVENTORY - these items ALWAYS travel with them."""
-    else:
-        prev_era = game_state.era_history[-1]
-        arrival_context = f"""
-The player just LEFT {prev_era['era_name']} behind. They spent {prev_era['turns']} turns there.
-They may have left people who cared about them. Starting over again.
+    mode = mode_config[game_state.mode]
 
-They've done this {len(game_state.era_history)} times now. Each jump gets heavier.
+    # Build hard rules section
+    hard_rules = era.get('hard_rules', {})
+    hard_rules_text = ""
+    for category, rules in hard_rules.items():
+        hard_rules_text += f"\n{category}:\n"
+        for rule in rules:
+            hard_rules_text += f"  - {rule}\n"
 
-IMPORTANT: The player has ALL items listed in their INVENTORY. These items ALWAYS travel with them
-between eras. Even if items were "lost" or "stolen" in narrative earlier, they are BACK now - 
-the game tracks items separately from story events. Only consumables that were actually USED are depleted."""
+    # Add adult hard rules in mature mode
+    if game_state.mode == GameMode.MATURE and 'adult_hard_rules' in era:
+        for category, rules in era['adult_hard_rules'].items():
+            hard_rules_text += f"\n{category} (mature):\n"
+            for rule in rules:
+                hard_rules_text += f"  - {rule}\n"
 
-    return f"""{arrival_context}
+    # Events
+    events = era.get('key_events', [])
+    if game_state.mode == GameMode.MATURE and 'adult_events' in era:
+        events = events + era.get('adult_events', [])
+    events_text = "\n".join(f"  - {e}" for e in events)
 
-Begin the story in {era['name']} ({era['year']}, {era['location']}).
+    # Figures
+    figures_text = "\n".join(f"  - {f}" for f in era.get('figures', []))
+
+    # Items section
+    items_section = get_items_prompt_section(game_state.inventory)
+
+    # Anchor detection (hidden from player)
+    anchor_prompt = get_anchor_detection_prompt()
+
+    # Event tracking (hidden from player)
+    event_prompt = get_event_tracking_prompt()
+
+    # Era history for context
+    era_history = ""
+    if game_state.era_history:
+        era_history = "\nPREVIOUS ERAS (for emotional weight):\n"
+        for h in game_state.era_history:
+            era_history += f"  - {h['era_name']}: spent {h['turns']} turns, character was {h.get('character_name', 'unnamed')}\n"
+        era_history += "\nThe player has LEFT people behind. Each new era should feel like starting over."
+
+    # Fulfillment state (qualitative only)
+    fs = game_state.fulfillment.get_narrative_state()
+    fulfillment_context = f"""
+PLAYER'S FULFILLMENT STATE (inform narrative, never state directly):
+- Belonging: {fs['belonging']['level']} ({fs['belonging']['recent_trend']})
+- Legacy: {fs['legacy']['level']} ({fs['legacy']['recent_trend']})
+- Freedom: {fs['freedom']['level']} ({fs['freedom']['recent_trend']})
+- Can meaningfully stay: {fs['can_stay']}
+- Dominant drive: {fs['dominant_anchor'] or 'none yet'}"""
+
+    return {
+        "game_mode": game_state.mode.value.upper(),
+        "tone": mode['tone'],
+        "era_name": era['name'],
+        "era_year": era['year'],
+        "era_location": era['location'],
+        "time_in_era": game_state.current_era.time_in_era_description if game_state.current_era else 'just arrived',
+        "hard_rules_text": hard_rules_text,
+        "events_text": events_text,
+        "figures_text": figures_text,
+        "items_section": items_section,
+        "era_history": era_history,
+        "fulfillment_context": fulfillment_context,
+        "indicator_value": game_state.time_machine.indicator.value,
+        "window_status": "OPEN - player can choose to leave" if game_state.time_machine.window_active else "closed",
+        "anchor_prompt": anchor_prompt,
+        "event_prompt": event_prompt,
+    }
+
+
+def get_system_prompt(game_state: GameState, era: dict) -> str:
+    """
+    Generate the system prompt for the AI narrator.
+
+    This sets up the entire context and rules for narrative generation.
+    Uses template override from Narrative Lab if one is active.
+    """
+    variables = _get_system_variables(game_state, era)
+    template = get_active_template("system") or DEFAULT_SYSTEM_TEMPLATE
+    return template.format(**variables)
+
+
+# =============================================================================
+# ARRIVAL PROMPT — Template + Variables
+# =============================================================================
+
+DEFAULT_ARRIVAL_TEMPLATE = """{arrival_context}
+
+Begin the story in {era_name} ({era_year}, {era_location}).
 
 REQUIREMENTS:
 1. Describe the MOMENT of arrival - disorientation, sensory details
@@ -316,8 +335,8 @@ CHOICE DESIGN:
   (local customs, religion, social hierarchy, what outsiders could offer)
 - The historically-informed choice should feel clever to someone who knows the era
 
-TIME PACING: The arrival scene happens over the first few hours/day. Each subsequent turn 
-will represent about 6-8 WEEKS (7 turns = 1 year). The travel window will stay closed for 
+TIME PACING: The arrival scene happens over the first few hours/day. Each subsequent turn
+will represent about 6-8 WEEKS (7 turns = 1 year). The travel window will stay closed for
 most of the first year, giving time to establish a life here.
 
 FORMAT:
@@ -325,7 +344,7 @@ FORMAT:
 - Then present choices on their own lines:
 
 [A] First choice
-[B] Second choice  
+[B] Second choice
 [C] Third choice
 
 <character_name>TheName</character_name>
@@ -336,9 +355,78 @@ IMPORTANT: Put the event tags and <anchors> tag on their own lines AFTER all thr
 Keep under 300 words. Drop them right into it."""
 
 
-def get_turn_prompt(game_state: GameState, choice: str, roll: int, era: dict = None) -> str:
-    """Prompt for processing a turn after player choice"""
-    
+def _get_arrival_variables(game_state: GameState, era: dict) -> dict:
+    """Compute all dynamic variables for the arrival prompt template."""
+    is_first = len(game_state.era_history) == 0
+
+    if is_first:
+        arrival_context = """
+This is the player's FIRST era. They just used an experimental time machine in present-day Bay Area
+to go back a few days, but the controls malfunctioned and threw them here instead.
+
+They are disoriented, scared, and completely unprepared. Their modern clothes mark them as strange.
+They have all the items listed in their INVENTORY - these items ALWAYS travel with them."""
+    else:
+        prev_era = game_state.era_history[-1]
+        arrival_context = f"""
+The player just LEFT {prev_era['era_name']} behind. They spent {prev_era['turns']} turns there.
+They may have left people who cared about them. Starting over again.
+
+They've done this {len(game_state.era_history)} times now. Each jump gets heavier.
+
+IMPORTANT: The player has ALL items listed in their INVENTORY. These items ALWAYS travel with them
+between eras. Even if items were "lost" or "stolen" in narrative earlier, they are BACK now -
+the game tracks items separately from story events. Only consumables that were actually USED are depleted."""
+
+    return {
+        "arrival_context": arrival_context,
+        "era_name": era['name'],
+        "era_year": era['year'],
+        "era_location": era['location'],
+    }
+
+
+def get_arrival_prompt(game_state: GameState, era: dict) -> str:
+    """Prompt for arriving in a new era. Uses template override if active."""
+    variables = _get_arrival_variables(game_state, era)
+    template = get_active_template("arrival") or DEFAULT_ARRIVAL_TEMPLATE
+    return template.format(**variables)
+
+
+# =============================================================================
+# TURN PROMPT — Template + Variables
+# =============================================================================
+
+DEFAULT_TURN_TEMPLATE = """The player chose: [{choice}]
+Dice roll: {roll}/20 - {luck}
+
+{window_note}
+
+{time_pacing}
+
+LUCK GUIDELINES:
+- Luck affects EXECUTION, not opportunity
+- Unlucky = complications, NOT catastrophic disasters
+- Never narrate the player being killed or captured with no escape
+
+Narrate the outcome of their choice, then present 3 new choices.
+
+EVENT TRACKING:
+- If any NPC becomes significant: <key_npc>NPCName</key_npc>
+- If player demonstrates historical understanding, use EXACTLY one of these wisdom IDs:
+{wisdom_ids_section}
+
+{choice_format}
+
+<anchors>belonging[+/-X] legacy[+/-X] freedom[+/-X]</anchors>
+
+IMPORTANT: Put all tags on their own lines AFTER the choices.
+
+Maintain continuity. Reference what came before."""
+
+
+def _get_turn_variables(game_state: GameState, choice: str, roll: int, era: dict = None) -> dict:
+    """Compute all dynamic variables for the turn prompt template."""
     # Luck interpretation - affects execution, not opportunity
     if roll <= 5:
         luck = "UNLUCKY - complications arise, the approach hits obstacles"
@@ -350,7 +438,7 @@ def get_turn_prompt(game_state: GameState, choice: str, roll: int, era: dict = N
         luck = "LUCKY - things go better than expected"
     else:
         luck = "VERY LUCKY - unexpected good fortune, doors open"
-    
+
     # Time pacing depends on whether window is open
     if game_state.time_machine.window_active:
         time_pacing = """
@@ -369,18 +457,18 @@ Don't compress everything into a single day."""
         window_turns = game_state.time_machine.window_turns_remaining
         can_stay = game_state.can_stay_meaningfully
         window_turn_number = 4 - window_turns  # 3->1, 2->2, 1->3
-        
+
         if window_turns == 1:
             # LAST TURN - urgent
             urgency = "This is the LAST chance to leave. The next window won't open for approximately another year."
-            
+
             window_note = f"""
 THE WINDOW IS CLOSING - FINAL TURN.
 {urgency}
 CRITICAL: Keep the time machine choice CLEAN. No obstacles to leaving."""
-            
+
             if can_stay:
-                choice_format = f"""
+                choice_format = """
 Generate 3 choices. Include these options (order may vary):
 - One choice to activate the time machine and leave this era (mention it's the last chance)
 - One choice to stay here forever, making this their permanent home (this ENDS THE GAME)
@@ -392,7 +480,7 @@ Example phrasings (adapt to narrative context):
 - "Let the window close and continue building your life here"
 """
             else:
-                choice_format = f"""
+                choice_format = """
 Generate 3 choices. Include:
 - One choice to activate the time machine and leave (mention it's the last chance)
 - Two choices to continue the story (mention the window will close)
@@ -402,14 +490,14 @@ Do NOT include a "stay forever" option - the player hasn't built enough here yet
         else:
             # TURNS 1 or 2 - window stays open
             remaining_text = "a little while longer" if window_turns == 3 else "one more turn"
-            
+
             window_note = f"""
 THE WINDOW IS OPEN (turn {window_turn_number} of 3).
 The window will remain open for {remaining_text}.
 CRITICAL: Keep the time machine choice CLEAN. No obstacles to leaving."""
-            
+
             if can_stay:
-                choice_format = f"""
+                choice_format = """
 Generate 3 choices. Include these options (order may vary):
 - One choice to activate the time machine and leave this era
 - One choice to stay here forever, making this their permanent home (this ENDS THE GAME)
@@ -421,7 +509,7 @@ Example phrasings (adapt to narrative context):
 - "Continue exploring - the window will remain open"
 """
             else:
-                choice_format = f"""
+                choice_format = """
 Generate 3 choices. Include:
 - One choice to activate the time machine and leave this era
 - Two choices to continue the story (can mention the window is open)
@@ -434,7 +522,7 @@ Do NOT include a "stay forever" option - the player hasn't built enough here yet
 TIME MACHINE STATUS: The device is SILENT. The window is NOT open.
 DO NOT mention the time machine, leaving this era, or traveling to another time in any choices.
 All three choices must be about the current narrative situation."""
-        
+
         choice_format = """
 Generate 3 story choices focused on the player's current situation.
 
@@ -444,102 +532,29 @@ CHOICE DESIGN:
 - No "give up" or "accept fate" options
 """
 
-    return f"""The player chose: [{choice}]
-Dice roll: {roll}/20 - {luck}
-
-{window_note}
-
-{time_pacing}
-
-LUCK GUIDELINES:
-- Luck affects EXECUTION, not opportunity
-- Unlucky = complications, NOT catastrophic disasters
-- Never narrate the player being killed or captured with no escape
-
-Narrate the outcome of their choice, then present 3 new choices.
-
-EVENT TRACKING:
-- If any NPC becomes significant: <key_npc>NPCName</key_npc>
-- If player demonstrates historical understanding, use EXACTLY one of these wisdom IDs:
-{_get_wisdom_ids_section(era)}
-
-{choice_format}
-
-<anchors>belonging[+/-X] legacy[+/-X] freedom[+/-X]</anchors>
-
-IMPORTANT: Put all tags on their own lines AFTER the choices.
-
-Maintain continuity. Reference what came before."""
+    return {
+        "choice": choice,
+        "roll": roll,
+        "luck": luck,
+        "window_note": window_note,
+        "time_pacing": time_pacing,
+        "wisdom_ids_section": _get_wisdom_ids_section(era),
+        "choice_format": choice_format,
+    }
 
 
-def get_window_prompt(game_state: GameState, choice: str = None, roll: int = None) -> str:
-    """Prompt for when the travel window opens."""
-    
-    can_stay = game_state.can_stay_meaningfully
-    fulfillment = game_state.fulfillment.get_narrative_state()
-    
-    # Luck interpretation
-    if roll:
-        if roll >= 17:
-            luck = "VERY LUCKY - things go better than expected"
-        elif roll >= 12:
-            luck = "LUCKY - fortune favors them"
-        elif roll >= 9:
-            luck = "NEUTRAL - events unfold normally"
-        elif roll >= 5:
-            luck = "UNLUCKY - complications arise"
-        else:
-            luck = "VERY UNLUCKY - significant setbacks (but never fatal/trapping)"
-        
-        choice_outcome = f"""The player chose: [{choice}]
-Dice roll: {roll}/20 - {luck}
+def get_turn_prompt(game_state: GameState, choice: str, roll: int, era: dict = None) -> str:
+    """Prompt for processing a turn after player choice. Uses template override if active."""
+    variables = _get_turn_variables(game_state, choice, roll, era)
+    template = get_active_template("turn") or DEFAULT_TURN_TEMPLATE
+    return template.format(**variables)
 
-First, briefly narrate the outcome of their choice (1-2 paragraphs), then transition to the window opening."""
-    else:
-        choice_outcome = ""
-    
-    # Emotional weight based on fulfillment
-    if can_stay:
-        emotional_weight = """
-The player has BUILT something here. They have:"""
-        if fulfillment['belonging']['has_arrived']:
-            emotional_weight += "\n- People who would miss them, a place in the community"
-        if fulfillment['legacy']['has_arrived']:
-            emotional_weight += "\n- Something lasting they've created or influenced"
-        if fulfillment['freedom']['has_arrived']:
-            emotional_weight += "\n- A life on their own terms, hard-won independence"
-        emotional_weight += """
 
-Leaving now means LOSING much of this. Make the cost FELT.
-But staying means never knowing what else might have been."""
-        
-        choice_format = """
-Generate 3 choices. Include these options (order may vary):
-- One choice to activate the time machine and leave this era behind
-- One choice to stay here forever, making this their permanent home (this ENDS THE GAME)
-- One choice to continue with the current situation while the window remains open
+# =============================================================================
+# WINDOW PROMPT — Template + Variables
+# =============================================================================
 
-The player has built something meaningful here. Make the weight of the decision felt.
-
-Example phrasings (adapt to narrative context):
-- "Activate the time machine and leave this era behind"
-- "This is my home now. I choose to stay here forever."
-- "Continue with your current path - the window will remain open for now"
-"""
-    else:
-        emotional_weight = """
-The player hasn't built deep roots here yet. Leaving is easier.
-But they could stay and build more."""
-        
-        choice_format = """
-Generate 3 choices. Include:
-- One choice to activate the time machine and leave this era
-- Two choices to continue the story while the window remains open
-
-The player hasn't built deep roots here yet. Do NOT include a "stay forever" option.
-"""
-
-    return f"""THE TIME MACHINE WINDOW HAS OPENED.
+DEFAULT_WINDOW_TEMPLATE = """THE TIME MACHINE WINDOW HAS OPENED.
 
 {choice_outcome}
 
@@ -561,23 +576,107 @@ The drama is in the DECISION, not the MECHANISM.
 IMPORTANT: Put the <anchors> tag on its own line AFTER all three choices."""
 
 
+def _get_window_variables(game_state: GameState, choice: str = None, roll: int = None) -> dict:
+    """Compute all dynamic variables for the window prompt template."""
+    can_stay = game_state.can_stay_meaningfully
+    fulfillment = game_state.fulfillment.get_narrative_state()
+
+    # Luck interpretation
+    if roll:
+        if roll >= 17:
+            luck = "VERY LUCKY - things go better than expected"
+        elif roll >= 12:
+            luck = "LUCKY - fortune favors them"
+        elif roll >= 9:
+            luck = "NEUTRAL - events unfold normally"
+        elif roll >= 5:
+            luck = "UNLUCKY - complications arise"
+        else:
+            luck = "VERY UNLUCKY - significant setbacks (but never fatal/trapping)"
+
+        choice_outcome = f"""The player chose: [{choice}]
+Dice roll: {roll}/20 - {luck}
+
+First, briefly narrate the outcome of their choice (1-2 paragraphs), then transition to the window opening."""
+    else:
+        choice_outcome = ""
+
+    # Emotional weight based on fulfillment
+    if can_stay:
+        emotional_weight = """
+The player has BUILT something here. They have:"""
+        if fulfillment['belonging']['has_arrived']:
+            emotional_weight += "\n- People who would miss them, a place in the community"
+        if fulfillment['legacy']['has_arrived']:
+            emotional_weight += "\n- Something lasting they've created or influenced"
+        if fulfillment['freedom']['has_arrived']:
+            emotional_weight += "\n- A life on their own terms, hard-won independence"
+        emotional_weight += """
+
+Leaving now means LOSING much of this. Make the cost FELT.
+But staying means never knowing what else might have been."""
+
+        choice_format = """
+Generate 3 choices. Include these options (order may vary):
+- One choice to activate the time machine and leave this era behind
+- One choice to stay here forever, making this their permanent home (this ENDS THE GAME)
+- One choice to continue with the current situation while the window remains open
+
+The player has built something meaningful here. Make the weight of the decision felt.
+
+Example phrasings (adapt to narrative context):
+- "Activate the time machine and leave this era behind"
+- "This is my home now. I choose to stay here forever."
+- "Continue with your current path - the window will remain open for now"
+"""
+    else:
+        emotional_weight = """
+The player hasn't built deep roots here yet. Leaving is easier.
+But they could stay and build more."""
+
+        choice_format = """
+Generate 3 choices. Include:
+- One choice to activate the time machine and leave this era
+- Two choices to continue the story while the window remains open
+
+The player hasn't built deep roots here yet. Do NOT include a "stay forever" option.
+"""
+
+    return {
+        "choice_outcome": choice_outcome,
+        "emotional_weight": emotional_weight,
+        "choice_format": choice_format,
+    }
+
+
+def get_window_prompt(game_state: GameState, choice: str = None, roll: int = None) -> str:
+    """Prompt for when the travel window opens. Uses template override if active."""
+    variables = _get_window_variables(game_state, choice, roll)
+    template = get_active_template("window") or DEFAULT_WINDOW_TEMPLATE
+    return template.format(**variables)
+
+
+# =============================================================================
+# ENDING PROMPTS — Not template-overridable (complex conditional logic)
+# =============================================================================
+
 def get_staying_ending_prompt(game_state: GameState, era: dict) -> str:
     """
     Prompt for when player chooses to stay permanently.
-    
+
     Uses differentiated configs per ending type to shape the narrative's
     tone, focus, and emotional arc.
     """
-    
+
     ending_type = game_state.fulfillment.get_ending_type()
     time_in_era = game_state.current_era.time_in_era_description if game_state.current_era else "some time"
     character_name = game_state.current_era.character_name if game_state.current_era else "the traveler"
-    
+
     # Get fulfillment values for conditional content
     belonging_value = game_state.fulfillment.belonging.value
     legacy_value = game_state.fulfillment.legacy.value
     freedom_value = game_state.fulfillment.freedom.value
-    
+
     # Differentiated ending configurations
     ENDING_CONFIGS = {
         "complete": {
@@ -629,16 +728,16 @@ def get_staying_ending_prompt(game_state: GameState, era: dict) -> str:
             "ending_imagery": "The journey continues, just in one place now. Maybe that's enough."
         }
     }
-    
+
     config = ENDING_CONFIGS.get(ending_type, ENDING_CONFIGS["searching"])
-    
+
     # Build era history context for referencing past lives
     era_ghosts = ""
     if len(game_state.era_history) >= 1:
         era_ghosts = "\nPREVIOUS LIVES (reference sparingly, as memory/dreams):\n"
         for h in game_state.era_history[-3:]:  # Last 3 eras max
             era_ghosts += f"  - {h['era_name']}: was called {h.get('character_name', 'unnamed')}, spent {h['turns']} turns\n"
-    
+
     # Build key relationships context from event log (not current_era.relationships)
     relationships_context = ""
     relationship_events = game_state.get_events_by_type("relationship") if hasattr(game_state, 'get_events_by_type') else []
@@ -652,7 +751,7 @@ def get_staying_ending_prompt(game_state: GameState, era: dict) -> str:
                 relationships_context += f"  - {name}\n"
             if len(seen_names) >= 5:
                 break
-    
+
     # Conditional "Ripple" content for high belonging/legacy (no separate header - weave into narrative)
     ripple_instruction = ""
     if belonging_value >= 40 or legacy_value >= 40:
@@ -734,11 +833,11 @@ This is the end of the game. Make it resonate AND educate.
 def get_quit_ending_prompt(game_state: GameState, era: dict) -> str:
     """
     Prompt for when player quits the game after playing 3+ turns.
-    
+
     Provides historical footnotes about the era they were in.
     No time machine references, no player-specific content.
     """
-    
+
     # Build wisdom moments context (optional educational enhancement)
     wisdom_context = ""
     wisdom_events = game_state.get_events_by_type("wisdom") if hasattr(game_state, 'get_events_by_type') else []
@@ -746,7 +845,7 @@ def get_quit_ending_prompt(game_state: GameState, era: dict) -> str:
         wisdom_context = "\nWISDOM ENCOUNTERED:\n"
         for w in wisdom_events[:5]:
             wisdom_context += f"  - {w.get('id', 'unknown insight')}\n"
-    
+
     # Format year
     year = era['year']
     year_str = f"{abs(year)} BCE" if year < 0 else f"{year} CE"
@@ -771,7 +870,7 @@ CRITICAL RULES:
 
 def get_leaving_prompt(game_state: GameState) -> str:
     """Prompt for when player chooses to leave"""
-    
+
     if game_state.can_stay_meaningfully:
         emotional_context = """
 The player had built something real here. Now it's gone."""
@@ -816,17 +915,17 @@ def get_historian_narrative_prompt(aoa_entry) -> str:
     """
     Generate prompt for the "historian" narrative - a third-person account
     of the traveler's life for the Annals of Anachron (shareable version).
-    
+
     Written in the voice of a master raconteur - mythic, proud, intriguing.
-    
+
     Args:
         aoa_entry: AoAEntry object with journey data
     """
-    
+
     # Format the year appropriately
     year = aoa_entry.final_era_year
     year_str = f"{abs(year)} BCE" if year < 0 else f"{year} CE"
-    
+
     # Build context for the AI (internal use, not for output)
     npc_context = ""
     if aoa_entry.key_npcs:
@@ -835,7 +934,7 @@ RELATIONSHIPS TO WEAVE IN (generalize roles, keep names only for spouse/family):
 {chr(10).join(f'  - {name}' for name in aoa_entry.key_npcs[:5])}
 Generalize: "Cardinal X" becomes "church leadership", "Lord Y" becomes "the local lord"
 Keep names for: spouse, children, close family"""
-    
+
     # Build defining moments context
     moments_context = ""
     if aoa_entry.defining_moments:
@@ -845,21 +944,21 @@ Keep names for: spouse, children, close family"""
             delta = moment.get('delta', 0)
             direction = "grew" if delta > 0 else "diminished"
             moments_context += f"  - Their sense of {anchor} {direction} significantly\n"
-    
-    # Build wisdom context  
+
+    # Build wisdom context
     wisdom_context = ""
     if aoa_entry.wisdom_moments:
         wisdom_context = f"""
 UNUSUAL CAPABILITIES (hint at, don't explain):
 {', '.join(aoa_entry.wisdom_moments[:3])}"""
-    
+
     # Build items context
     items_context = ""
     if aoa_entry.items_used:
         items_context = f"""
 ARTIFACTS (mention only if essential):
 {', '.join(aoa_entry.items_used[:3])}"""
-    
+
     # Ending type shapes tone
     HISTORIAN_ANGLES = {
         "complete": {
@@ -893,9 +992,9 @@ ARTIFACTS (mention only if essential):
             "closing_theme": "found enough, if not everything"
         }
     }
-    
+
     angle = HISTORIAN_ANGLES.get(aoa_entry.ending_type, HISTORIAN_ANGLES["searching"])
-    
+
     return f"""Write an ANNALS OF ANACHRON entry for a figure who appeared in {aoa_entry.final_era} around {year_str}.
 
 YOU ARE A MASTER RACONTEUR, not a dry historian. Your goal:
@@ -925,18 +1024,18 @@ STRUCTURE:
    Make it memorable, specific to their story.
 
 2. THE STORY (4-5 paragraphs, ~200 words total):
-   
+
    Opening: One sentence establishing the hook. "In the chaos of X, a man/woman called Y rose from nowhere to..."
-   
-   Arrival: One paragraph. First appearance in records - "unnervingly capable", "recognized something in him/her". 
+
+   Arrival: One paragraph. First appearance in records - "unnervingly capable", "recognized something in him/her".
    The local lord, church leadership, the garrison commander - USE ROLES NOT NAMES (except spouse/family).
-   
+
    Rise: One paragraph. "What followed was unprecedented." Key relationships and achievements.
    For spouse: "He found love with [Name], a [role] with whom he built a life that would have seemed impossible mere seasons before."
    For others: generalize to roles.
-   
+
    Legacy: One paragraph. What they built, what spread, what endured.
-   
+
    Closing: One resonant line. "Perhaps he understood what the dying age could not: that [closing_theme]."
 
 STYLE RULES:
@@ -968,3 +1067,24 @@ After the story, add this section:
 Find the "Historical Footnotes" section from the player narrative above and convert to 3rd person.
 Keep the educational content intact - just change "you" to "he/she/they" and "your" to "his/her/their".
 This section teaches real history through the character's journey."""
+
+
+# =============================================================================
+# TEMPLATE REGISTRY — For Narrative Lab baseline/override system
+# =============================================================================
+
+# Maps prompt_type names to their default template constants
+BASELINE_TEMPLATES = {
+    "system": DEFAULT_SYSTEM_TEMPLATE,
+    "turn": DEFAULT_TURN_TEMPLATE,
+    "arrival": DEFAULT_ARRIVAL_TEMPLATE,
+    "window": DEFAULT_WINDOW_TEMPLATE,
+}
+
+# Maps prompt_type names to their variable-computing functions
+TEMPLATE_VARIABLE_FUNCTIONS = {
+    "system": _get_system_variables,
+    "turn": _get_turn_variables,
+    "arrival": _get_arrival_variables,
+    "window": _get_window_variables,
+}

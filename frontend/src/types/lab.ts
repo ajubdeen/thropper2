@@ -64,6 +64,33 @@ export interface LabPromptVariant {
   prompt_type: string;
   template: string;
   is_default: boolean;
+  is_live: boolean;
+  version_number: number;
+  diff_vs_baseline: string | null;
+  diff_vs_previous: string | null;
+  change_summary: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LiveStatus {
+  [promptType: string]: {
+    is_live: boolean;
+    variant_id?: string | null;
+    variant_name?: string | null;
+    version_number?: number | null;
+  };
+}
+
+export interface VersionHistoryEntry {
+  id: string;
+  name: string;
+  description: string | null;
+  prompt_type: string;
+  version_number: number;
+  is_default: boolean;
+  is_live: boolean;
+  change_summary: string | null;
   created_at: string;
   updated_at: string;
 }

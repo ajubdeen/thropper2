@@ -11,6 +11,7 @@ from flask import Blueprint, request, jsonify, session
 import lab_db
 import lab_service
 import lab_quickplay
+import prompt_overrides
 
 logger = logging.getLogger(__name__)
 
@@ -315,10 +316,28 @@ def delete_generation(generation_id):
 @lab.route('/prompts', methods=['POST'])
 @require_admin
 def create_prompt_variant():
-    """Create a prompt variant."""
+    """Create a prompt variant with auto-versioning and diff computation."""
     try:
         data = request.json
-        data['user_id'] = session['user_id']
+        user_id = session['user_id']
+        data['user_id'] = user_id
+        prompt_type = data.get('prompt_type', '')
+
+        # Auto-assign version number
+        version_number = lab_db.get_next_version_number(user_id, prompt_type)
+        data['version_number'] = version_number
+
+        # Compute diffs
+        previous = lab_db.get_previous_version(user_id, prompt_type)
+        diffs = prompt_overrides.compute_diffs(
+            prompt_type,
+            data['template'],
+            previous['template'] if previous else None
+        )
+        data['diff_vs_baseline'] = diffs['diff_vs_baseline']
+        data['diff_vs_previous'] = diffs['diff_vs_previous']
+        data['change_summary'] = diffs['change_summary']
+
         result = lab_db.save_prompt_variant(data)
         return jsonify(result), 201
     except KeyError as e:
@@ -401,6 +420,146 @@ def get_default_prompt(prompt_type):
         return jsonify(result)
     except Exception as e:
         logger.error(f"Get default prompt error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== Prompt Version Control ====================
+
+@lab.route('/prompts/<variant_id>/push', methods=['POST'])
+@require_admin
+def push_prompt_live(variant_id):
+    """Push a prompt variant to the live game engine."""
+    try:
+        variant = lab_db.push_variant_live(variant_id)
+        if not variant:
+            return jsonify({'error': 'Variant not found'}), 404
+
+        # Update in-memory cache
+        prompt_overrides.push_live(variant['prompt_type'], variant['template'])
+
+        return jsonify({
+            'success': True,
+            'variant': variant,
+            'message': f"Prompt '{variant['name']}' is now live for {variant['prompt_type']}"
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Push prompt live error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/prompts/revert/<prompt_type>', methods=['POST'])
+@require_admin
+def revert_prompt(prompt_type):
+    """Revert a prompt type to its baseline (default) template."""
+    try:
+        reverted = lab_db.revert_prompt_type(prompt_type)
+
+        # Update in-memory cache
+        prompt_overrides.revert_to_baseline(prompt_type)
+
+        return jsonify({
+            'success': True,
+            'reverted': reverted,
+            'message': f"Prompt '{prompt_type}' reverted to baseline"
+        })
+    except Exception as e:
+        logger.error(f"Revert prompt error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/prompts/live', methods=['GET'])
+@require_admin
+def get_live_status():
+    """Get live status for all prompt types."""
+    try:
+        status = prompt_overrides.get_live_status()
+
+        # Also get the live variant details
+        details = {}
+        for pt, is_live in status.items():
+            if is_live:
+                variant = lab_db.get_live_variant(pt)
+                details[pt] = {
+                    'is_live': True,
+                    'variant_id': variant['id'] if variant else None,
+                    'variant_name': variant['name'] if variant else None,
+                    'version_number': variant.get('version_number') if variant else None,
+                }
+            else:
+                details[pt] = {'is_live': False}
+
+        return jsonify(details)
+    except Exception as e:
+        logger.error(f"Get live status error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/prompts/versions/<prompt_type>', methods=['GET'])
+@require_admin
+def get_version_history(prompt_type):
+    """Get version history for a prompt type."""
+    try:
+        versions = lab_db.get_version_history(session['user_id'], prompt_type)
+        return jsonify(versions)
+    except Exception as e:
+        logger.error(f"Get version history error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/prompts/baseline/<prompt_type>', methods=['GET'])
+@require_admin
+def get_baseline_prompt(prompt_type):
+    """Get the baseline template text for a prompt type."""
+    try:
+        baseline = prompt_overrides.get_baseline_template(prompt_type)
+        if not baseline:
+            return jsonify({'error': f'No baseline found for {prompt_type}'}), 404
+        return jsonify({
+            'prompt_type': prompt_type,
+            'template': baseline,
+        })
+    except Exception as e:
+        logger.error(f"Get baseline prompt error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/prompts/seed-baselines', methods=['POST'])
+@require_admin
+def seed_baselines():
+    """Seed baseline entries for all prompt types (version 0, is_default=True)."""
+    try:
+        from prompts import BASELINE_TEMPLATES
+        user_id = session['user_id']
+        created = []
+
+        for prompt_type, template in BASELINE_TEMPLATES.items():
+            # Check if baseline already exists
+            existing = lab_db.get_baseline_variant(user_id, prompt_type)
+            if existing:
+                continue
+
+            data = {
+                'user_id': user_id,
+                'name': f'Baseline ({prompt_type})',
+                'description': f'Original production {prompt_type} prompt template',
+                'prompt_type': prompt_type,
+                'template': template,
+                'is_default': True,
+                'version_number': 0,
+                'change_summary': 'Original baseline',
+            }
+            result = lab_db.save_prompt_variant(data)
+            created.append(prompt_type)
+
+        return jsonify({
+            'success': True,
+            'created': created,
+            'message': f"Seeded baselines for: {', '.join(created)}" if created else "All baselines already exist"
+        })
+    except Exception as e:
+        logger.error(f"Seed baselines error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

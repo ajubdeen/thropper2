@@ -73,6 +73,10 @@ init_oauth(app)
 from lab_routes import lab
 app.register_blueprint(lab)
 
+# Load active prompt overrides from DB into memory cache
+from prompt_overrides import load_overrides_from_db
+load_overrides_from_db()
+
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
