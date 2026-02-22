@@ -1333,10 +1333,65 @@ class GameAPI:
         # End the game
         self.state.choose_to_stay(is_final=True)
         self.state.end_game()
-        
+
+        # Start portrait generation while player reads ending narrative
+        self._start_portrait_background()
+
         # Wait for user to click continue before showing score
         yield emit(MessageType.WAITING_INPUT, {"action": "continue_to_score"})
     
+    def _start_portrait_background(self):
+        """Start portrait generation in a background thread while player reads ending narrative."""
+        try:
+            import portrait_generator
+            if not portrait_generator.OPENAI_AVAILABLE:
+                return
+        except ImportError:
+            return
+
+        import threading
+
+        era = self.state.current_era
+        portrait_data = {
+            'final_era': era.era_name if era else 'Unknown',
+            'final_era_year': getattr(era, 'era_year', None) if era else None,
+            'character_name': getattr(era, 'character_name', None) or self.state.player_name or 'The Traveler',
+            'ending_type': self.state.fulfillment.get_ending_type(),
+            'belonging_score': self.state.fulfillment.belonging.value,
+            'legacy_score': self.state.fulfillment.legacy.value,
+            'freedom_score': self.state.fulfillment.freedom.value,
+            'key_npcs': [e.get('npc_name', '') for e in self.state.get_events_by_type('relationship')],
+            'items_used': [e.get('item_name', '') for e in self.state.get_events_by_type('item_use')],
+            'player_narrative': getattr(self, '_ending_narrative', ''),
+            'historian_narrative': '',  # Not yet generated — sufficient for scene extraction
+        }
+        image_id = f"portrait_{self.game_id}"
+
+        # Thread-safe state shared between game thread and background thread
+        self._portrait_state = {
+            'image_id': image_id,
+            'entry_id': None,        # Set later when AoA entry is saved
+            'serving_path': None,    # Set by background thread when done
+            'done': False,
+            'lock': threading.Lock(),
+        }
+
+        def _generate():
+            path = portrait_generator.generate_portrait_from_data(portrait_data, image_id)
+            with self._portrait_state['lock']:
+                self._portrait_state['serving_path'] = path
+                self._portrait_state['done'] = True
+                entry_id = self._portrait_state['entry_id']
+            # Link to AoA entry if it has been saved already
+            if path and entry_id:
+                try:
+                    portrait_generator._update_aoa_portrait(entry_id, path, '')
+                except Exception as e:
+                    logger.error(f"Portrait DB update failed: {e}")
+
+        threading.Thread(target=_generate, daemon=True).start()
+        logger.info(f"Portrait generation started in background for game {self.game_id}")
+
     def continue_to_score(self) -> Generator[Dict, None, None]:
         """Continue to show the final score after the narrative"""
         # Calculate and emit score, passing the stored ending narrative
@@ -1465,7 +1520,6 @@ class GameAPI:
         # END DEBUG
         
         is_stay_ending = ending_type_override is None and score.ending_type != "abandoned"
-        portrait_path = None
 
         try:
             aoa_entry = annals.create_entry(self.state, score)
@@ -1479,16 +1533,19 @@ class GameAPI:
                 # Save to annals
                 annals.save_entry(aoa_entry)
 
-                # Generate portrait via AoA entry
-                if score.total >= 300 and is_stay_ending:
-                    try:
-                        yield emit(MessageType.LOADING, {"text": "Creating your portrait..."})
-                        import portrait_generator
-                        portrait_path = portrait_generator.generate_portrait(aoa_entry.entry_id)
-                        if portrait_path:
-                            logger.info(f"Portrait generated: {portrait_path}")
-                    except Exception as pe:
-                        logger.error(f"Portrait generation failed: {pe}")
+                # Link background portrait to this AoA entry (handles race condition both ways)
+                if hasattr(self, '_portrait_state'):
+                    with self._portrait_state['lock']:
+                        self._portrait_state['entry_id'] = aoa_entry.entry_id
+                        # Portrait already finished while player was reading narrative/score — update now
+                        if self._portrait_state['done'] and self._portrait_state['serving_path']:
+                            try:
+                                import portrait_generator
+                                portrait_generator._update_aoa_portrait(
+                                    aoa_entry.entry_id, self._portrait_state['serving_path'], ''
+                                )
+                            except Exception as e:
+                                logger.error(f"Portrait DB update (immediate) failed: {e}")
 
                 # Prepare AoA data for response
                 aoa_data = {
@@ -1499,53 +1556,10 @@ class GameAPI:
                     "character_name": aoa_entry.character_name,
                     "final_era": aoa_entry.final_era,
                     "final_era_year": aoa_entry.final_era_year,
-                    "portrait_image_path": portrait_path,
                 }
             else:
-                # No AoA entry, but still generate portrait if qualifying
-                if score.total >= 300 and is_stay_ending:
-                    try:
-                        yield emit(MessageType.LOADING, {"text": "Creating your portrait..."})
-                        import portrait_generator
-                        game_id = self.state.game_id if hasattr(self.state, 'game_id') else 'unknown'
-                        image_id = f"portrait_{game_id}"
-                        # Build minimal data dict for scene extraction
-                        char_name = self.state.current_era.character_name if self.state.current_era else 'The Traveler'
-                        era_name = self.state.current_era.era_name if self.state.current_era else 'Unknown'
-                        era_year = self.state.current_era.era_year if self.state.current_era else 0
-                        portrait_data = {
-                            'final_era': era_name,
-                            'final_era_year': era_year,
-                            'character_name': char_name,
-                            'ending_type': score.ending_type,
-                            'belonging_score': score.belonging_score,
-                            'legacy_score': score.legacy_score,
-                            'freedom_score': score.freedom_score,
-                            'key_npcs': [e.get('npc_name', '') for e in self.state.get_events_by_type('relationship')],
-                            'items_used': [e.get('item_name', '') for e in self.state.get_events_by_type('item_use')],
-                            'player_narrative': score.ending_narrative or '',
-                            'historian_narrative': '',
-                        }
-                        portrait_path = portrait_generator.generate_portrait_from_data(portrait_data, image_id)
-                        if portrait_path:
-                            logger.info(f"Portrait generated (no AoA): {portrait_path}")
-                            # Store path in leaderboard for display
-                            try:
-                                from db import get_db
-                                with get_db() as conn:
-                                    with conn.cursor() as cur:
-                                        cur.execute(
-                                            "UPDATE leaderboard_entries SET portrait_image_path = %s WHERE game_id = %s",
-                                            (portrait_path, game_id)
-                                        )
-                            except Exception:
-                                pass
-                    except Exception as pe:
-                        logger.error(f"Portrait generation (no AoA) failed: {pe}")
-
                 aoa_data = {
                     "qualified": False,
-                    "portrait_image_path": portrait_path,
                 }
         except Exception as e:
             # Don't fail the whole score display if AoA fails
