@@ -165,8 +165,7 @@ class Storage:
         with get_db() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    """SELECT l.*, COALESCE(a.portrait_image_path, l.portrait_image_path) AS portrait_image_path,
-                              a.historian_narrative
+                    """SELECT l.*, a.portrait_image_path, a.historian_narrative
                        FROM leaderboard_entries l
                        LEFT JOIN aoa_entries a ON l.game_id = a.game_id
                        ORDER BY l.total_score DESC LIMIT %s""",
@@ -179,8 +178,7 @@ class Storage:
         with get_db() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    """SELECT l.*, COALESCE(a.portrait_image_path, l.portrait_image_path) AS portrait_image_path,
-                              a.historian_narrative
+                    """SELECT l.*, a.portrait_image_path, a.historian_narrative
                        FROM leaderboard_entries l
                        LEFT JOIN aoa_entries a ON l.game_id = a.game_id
                        WHERE l.user_id = %s
