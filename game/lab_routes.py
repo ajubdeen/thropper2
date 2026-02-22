@@ -1021,9 +1021,19 @@ def push_image_prompt():
 
 
 @lab.route('/regenerate-portrait', methods=['POST'])
-@require_admin
 def regenerate_portrait():
-    """Regenerate portrait for an AoA entry. Runs synchronously — expect 30-60s."""
+    """Regenerate portrait for an AoA entry. Runs synchronously — expect 30-60s.
+    Auth: requires admin session OR SESSION_SECRET token in X-Admin-Token header."""
+    import os
+    token = request.headers.get('X-Admin-Token', '')
+    secret = os.environ.get('SESSION_SECRET', '')
+    if not token or not secret or token != secret:
+        # Fall back to session check
+        if not os.environ.get('GOOGLE_CLIENT_ID') or session.get('email') == ADMIN_EMAIL:
+            pass  # dev mode or valid session
+        else:
+            return jsonify({'error': 'Forbidden'}), 403
+
     data = request.get_json()
     entry_id = (data.get('entry_id') or '').strip()
     if not entry_id:
