@@ -32,7 +32,10 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-PORTRAITS_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'portraits')
+PORTRAITS_DIR = os.environ.get(
+    'RAILWAY_VOLUME_MOUNT_PATH',
+    os.path.join(os.path.dirname(__file__), '..', 'data', 'portraits')
+)
 
 
 # ---------------------------------------------------------------------------

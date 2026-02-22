@@ -36,7 +36,10 @@ def emit(event: str, data: dict):
 
 # Determine static files directory
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
-PORTRAITS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'portraits')
+PORTRAITS_DIR = os.environ.get(
+    'RAILWAY_VOLUME_MOUNT_PATH',
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'portraits')
+)
 
 app = Flask(__name__, static_folder=None)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET') or os.urandom(24).hex()
