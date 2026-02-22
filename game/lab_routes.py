@@ -1020,6 +1020,108 @@ def push_image_prompt():
         return jsonify({'error': str(e)}), 500
 
 
+@lab.route('/generate-aoa-narrative', methods=['POST'])
+def generate_aoa_narrative():
+    """Generate and save historian + ending narratives for an AoA entry that has none.
+    Auth: SESSION_SECRET token in X-Admin-Token header OR admin session."""
+    import os
+    token = request.headers.get('X-Admin-Token', '')
+    secret = os.environ.get('SESSION_SECRET', '')
+    if not token or not secret or token != secret:
+        if not os.environ.get('GOOGLE_CLIENT_ID') or session.get('email') == ADMIN_EMAIL:
+            pass
+        else:
+            return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.get_json()
+    entry_id = (data.get('entry_id') or '').strip()
+    if not entry_id:
+        return jsonify({'error': 'entry_id is required'}), 400
+
+    try:
+        from db import get_db, storage
+        import anthropic, json as _json
+
+        aoa = storage.get_aoa_entry(entry_id)
+        if not aoa:
+            return jsonify({'error': 'AoA entry not found'}), 404
+
+        client = anthropic.Anthropic()
+
+        # Build a prompt for the ending narrative (player perspective)
+        npcs = aoa.get('key_npcs', [])
+        if isinstance(npcs, str):
+            npcs = _json.loads(npcs)
+        items = aoa.get('items_used', [])
+        if isinstance(items, str):
+            items = _json.loads(items)
+
+        ending_prompt = f"""You are writing the ending narrative for a time-travel adventure game.
+
+The player's character is {aoa.get('character_name', 'the traveler')} in {aoa.get('final_era', 'an unknown era')} ({aoa.get('final_era_year', '')}).
+Player name: {aoa.get('player_name', 'the player')}
+Ending type: {aoa.get('ending_type', 'balanced')}
+Belonging: {aoa.get('belonging_score', 0)}, Legacy: {aoa.get('legacy_score', 0)}, Freedom: {aoa.get('freedom_score', 0)}
+Key NPCs: {', '.join(npcs) if npcs else 'none recorded'}
+Items used: {', '.join(items) if items else 'none'}
+Turns survived: {aoa.get('turns_survived', 0)}
+
+Write a rich, evocative 3-paragraph ending narrative in second person ("you") describing:
+1. The moment the time device goes dark and the character accepts this era as home
+2. The life they built in the decades that followed, weaving in the key NPCs
+3. A brief historical footnote about the era
+
+Keep it under 500 words. Write only the narrative, no titles or headers."""
+
+        ending_response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": ending_prompt}]
+        )
+        player_narrative = ending_response.content[0].text.strip()
+
+        # Generate historian narrative (third-person chronicle with a title heading)
+        historian_prompt = f"""Write a short historian's chronicle entry about {aoa.get('character_name', 'the traveler')}, a time-traveler who chose to stay in {aoa.get('final_era', 'an unknown era')} ({aoa.get('final_era_year', '')}).
+
+Player: {aoa.get('player_name', '')}, ending: {aoa.get('ending_type', 'balanced')}
+Key NPCs: {', '.join(npcs) if npcs else 'none'}
+
+Format:
+- First line must be a markdown heading: # [Poetic name for the character] (e.g. "# Eirik of the Longhouse" or "# The Healer of Jutland")
+- Then 2-3 short paragraphs in third person, like a historical record
+- Tone: dignified, literary, slightly archaic
+- Under 200 words total"""
+
+        historian_response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=400,
+            messages=[{"role": "user", "content": historian_prompt}]
+        )
+        historian_narrative = historian_response.content[0].text.strip()
+
+        # Save both to DB
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE aoa_entries SET player_narrative = %s, historian_narrative = %s WHERE entry_id = %s",
+                    (player_narrative, historian_narrative, entry_id)
+                )
+                # Also update the leaderboard ending_narrative
+                game_id = aoa.get('game_id')
+                if game_id:
+                    cur.execute(
+                        "UPDATE leaderboard_entries SET ending_narrative = %s WHERE game_id = %s",
+                        (player_narrative, game_id)
+                    )
+
+        logger.info(f"Narratives generated for AoA entry {entry_id}")
+        return jsonify({'success': True, 'historian_narrative': historian_narrative[:120] + '...'})
+
+    except Exception as e:
+        logger.error(f"Generate AoA narrative error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @lab.route('/regenerate-portrait', methods=['POST'])
 def regenerate_portrait():
     """Regenerate portrait for an AoA entry. Runs synchronously — expect 30-60s.
