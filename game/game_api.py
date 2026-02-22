@@ -18,9 +18,12 @@ import json
 import random
 import re
 import os
+import logging
 from typing import Optional, Generator, Dict, Any, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
+
+logger = logging.getLogger(__name__)
 
 # Try to import anthropic
 try:
@@ -1335,7 +1338,10 @@ class GameAPI:
         self.state.end_game()
 
         # Start portrait generation while player reads ending narrative
-        self._start_portrait_background()
+        try:
+            self._start_portrait_background()
+        except Exception as e:
+            logger.error(f"Portrait background start failed (non-fatal): {e}")
 
         # Wait for user to click continue before showing score
         yield emit(MessageType.WAITING_INPUT, {"action": "continue_to_score"})
