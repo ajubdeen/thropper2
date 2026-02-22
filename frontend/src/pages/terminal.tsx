@@ -231,7 +231,7 @@ export default function GamePage() {
     if (aoaGallery.length <= 1) return;
     const timer = setInterval(() => {
       setGalleryIndex(i => (i + 1) % aoaGallery.length);
-    }, 3500);
+    }, 4000);
     return () => clearInterval(timer);
   }, [aoaGallery.length]);
 
@@ -844,8 +844,9 @@ export default function GamePage() {
                   return (
                     <button
                       onClick={() => showLeaderboard(true)}
-                      className="w-full mb-3 block rounded-lg overflow-hidden cursor-pointer group"
+                      className="w-full mb-1 block cursor-pointer"
                     >
+                      <p className="text-xs text-gray-500 uppercase tracking-widest text-center mb-2">Annals of Anachron</p>
                       <div className="relative aspect-[3/2] overflow-hidden rounded-lg">
                         <img
                           src={entry.portrait_image_path!}
@@ -865,7 +866,7 @@ export default function GamePage() {
                 <Button
                   onClick={() => showLeaderboard(true)}
                   variant="ghost"
-                  className="w-full text-gray-400 hover:text-amber-400 gap-2 py-5"
+                  className="w-full text-gray-400 hover:text-amber-400 gap-2 py-3"
                   data-testid="button-leaderboard"
                 >
                   <Trophy className="w-4 h-4" />
