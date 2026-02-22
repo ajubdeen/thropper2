@@ -159,3 +159,91 @@ export interface PaginatedResponse<T> {
   total: number;
   [key: string]: T[] | number;
 }
+
+export interface QuickPlaySessionRecord {
+  id: string;
+  user_id: string;
+  player_name: string | null;
+  region: string | null;
+  system_prompt_variant_id: string | null;
+  system_prompt_variant_name: string;
+  turn_prompt_variant_id: string | null;
+  turn_prompt_variant_name: string;
+  arrival_prompt_variant_id: string | null;
+  arrival_prompt_variant_name: string;
+  window_prompt_variant_id: string | null;
+  window_prompt_variant_name: string;
+  model: string | null;
+  temperature: number | null;
+  dice_roll: number | null;
+  turn_count: number;
+  created_at: string;
+}
+
+export interface QuickPlayTurn {
+  id: string;
+  session_id: string;
+  user_id: string;
+  turn_number: number;
+  turn_type: "arrival" | "choice" | "new-era";
+  era_id: string | null;
+  era_name: string | null;
+  era_year: number | null;
+  era_location: string | null;
+  region: string | null;
+  system_prompt_variant_id: string | null;
+  system_prompt_variant_name: string;
+  turn_prompt_variant_id: string | null;
+  turn_prompt_variant_name: string;
+  arrival_prompt_variant_id: string | null;
+  arrival_prompt_variant_name: string;
+  window_prompt_variant_id: string | null;
+  window_prompt_variant_name: string;
+  model: string | null;
+  temperature: number | null;
+  dice_roll: number | null;
+  choice_made: string | null;
+  narrative_text: string | null;
+  choices: Array<{ id: string; text: string }>;
+  snapshot_id: string | null;
+  created_at: string;
+}
+
+export interface QuickPlayHistoryFilters {
+  session_id?: string;
+  era_id?: string;
+  model?: string;
+  region?: string;
+  system_prompt_variant_id?: string;
+  turn_prompt_variant_id?: string;
+  arrival_prompt_variant_id?: string;
+  window_prompt_variant_id?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ImageGenerateRequest {
+  prompt: string;
+  model: string;
+  quality: string;
+  size: string;
+}
+
+export interface LabImageResult {
+  image_path: string;
+  prompt: string;
+}
+
+export interface QuickPlayFilterOptions {
+  models: string[];
+  eras: Array<{ era_id: string; era_name: string }>;
+  regions: string[];
+  variants: {
+    system: Array<{ id: string | null; name: string }>;
+    turn: Array<{ id: string | null; name: string }>;
+    arrival: Array<{ id: string | null; name: string }>;
+    window: Array<{ id: string | null; name: string }>;
+  };
+}

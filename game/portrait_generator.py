@@ -311,6 +311,38 @@ def generate_portrait(entry_id: str) -> Optional[str]:
     return serving_path
 
 
+def generate_image_from_prompt(prompt: str, model: str = "gpt-image-1.5",
+                               quality: str = "medium", size: str = "1536x1024") -> Optional[str]:
+    """
+    Direct image generation from a raw prompt string — no Claude extraction stage.
+    Used by the Image Lab tab for iterating on prompts manually.
+    Saves image to data/portraits/lab_{id}.png and returns the serving path.
+    """
+    if not OPENAI_AVAILABLE:
+        logger.warning("OpenAI SDK not available or OPENAI_API_KEY not set, skipping image generation")
+        return None
+
+    import uuid
+    image_id = f"lab_{uuid.uuid4().hex[:12]}"
+
+    try:
+        client = openai.OpenAI()
+        response = client.images.generate(
+            model=model,
+            prompt=prompt,
+            size=size,
+            quality=quality,
+            n=1,
+        )
+        b64_data = response.data[0].b64_json
+        logger.info(f"Image generated via {model} ({quality}, {size})")
+    except Exception as e:
+        logger.error(f"OpenAI image generation failed: {e}")
+        return None
+
+    return _save_image_b64(b64_data, image_id)
+
+
 def generate_portrait_from_data(aoa_data: dict, image_id: str) -> Optional[str]:
     """
     Generate a portrait from provided data dict (no DB lookup).

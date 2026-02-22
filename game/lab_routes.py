@@ -398,6 +398,24 @@ def update_prompt_variant(variant_id):
     """Update a prompt variant."""
     try:
         data = request.json
+
+        # Recompute diffs when template changes
+        if 'template' in data:
+            existing = lab_db.get_prompt_variant(variant_id)
+            if existing:
+                previous = lab_db.get_previous_version(
+                    existing['user_id'], existing['prompt_type'],
+                    before_version=existing['version_number']
+                )
+                diffs = prompt_overrides.compute_diffs(
+                    existing['prompt_type'],
+                    data['template'],
+                    previous['template'] if previous else None
+                )
+                data['diff_vs_baseline'] = diffs['diff_vs_baseline']
+                data['diff_vs_previous'] = diffs['diff_vs_previous']
+                data['change_summary'] = diffs['change_summary']
+
         result = lab_db.update_prompt_variant(variant_id, data)
         if not result:
             return jsonify({'error': 'Variant not found'}), 404
@@ -612,6 +630,16 @@ def _resolve_variant_id(variant_id: str) -> str:
     return variant['template'] if variant else None
 
 
+def _resolve_variant_meta(variant_id: str) -> tuple:
+    """Resolve a prompt variant ID to (template, id, name). Returns (None, None, None) if not found."""
+    if not variant_id:
+        return None, None, None
+    variant = lab_db.get_prompt_variant(variant_id)
+    if not variant:
+        return None, None, None
+    return variant['template'], variant['id'], variant['name']
+
+
 def _apply_per_turn_params(qp, data: dict):
     """Apply per-turn overridable params (model, temperature, dice_roll) to session."""
     if not data:
@@ -634,23 +662,31 @@ def quickplay_start():
     try:
         data = request.json or {}
 
-        # Resolve prompt variant IDs to template text
-        system_prompt_override = _resolve_variant_id(data.get('system_prompt_variant_id'))
-        turn_prompt_override = _resolve_variant_id(data.get('turn_prompt_variant_id'))
-        arrival_prompt_override = _resolve_variant_id(data.get('arrival_prompt_variant_id'))
-        window_prompt_override = _resolve_variant_id(data.get('window_prompt_variant_id'))
+        # Resolve prompt variant IDs to template text + metadata
+        sys_tpl, sys_id, sys_name = _resolve_variant_meta(data.get('system_prompt_variant_id'))
+        turn_tpl, turn_id, turn_name = _resolve_variant_meta(data.get('turn_prompt_variant_id'))
+        arr_tpl, arr_id, arr_name = _resolve_variant_meta(data.get('arrival_prompt_variant_id'))
+        win_tpl, win_id, win_name = _resolve_variant_meta(data.get('window_prompt_variant_id'))
 
         result = lab_quickplay.create_session(
             user_id=session['user_id'],
             player_name=data.get('player_name', 'Lab Tester'),
             region=data.get('region', 'european'),
-            system_prompt_override=system_prompt_override,
-            turn_prompt_override=turn_prompt_override,
-            arrival_prompt_override=arrival_prompt_override,
-            window_prompt_override=window_prompt_override,
+            system_prompt_override=sys_tpl,
+            turn_prompt_override=turn_tpl,
+            arrival_prompt_override=arr_tpl,
+            window_prompt_override=win_tpl,
             model_override=data.get('model'),
             temperature=data.get('temperature'),
             dice_roll=data.get('dice_roll'),
+            system_prompt_variant_id=sys_id,
+            system_prompt_variant_name=sys_name,
+            turn_prompt_variant_id=turn_id,
+            turn_prompt_variant_name=turn_name,
+            arrival_prompt_variant_id=arr_id,
+            arrival_prompt_variant_name=arr_name,
+            window_prompt_variant_id=win_id,
+            window_prompt_variant_name=win_name,
         )
         return jsonify(result), 201
     except Exception as e:
@@ -724,8 +760,10 @@ def quickplay_update_params(session_id):
         for prompt_type in ['system', 'turn', 'arrival', 'window']:
             key = f'{prompt_type}_prompt_variant_id'
             if key in data:
-                template = _resolve_variant_id(data[key])
+                template, vid, vname = _resolve_variant_meta(data[key])
                 updates[f'{prompt_type}_prompt_override'] = template or ''
+                updates[f'{prompt_type}_prompt_variant_id'] = vid
+                updates[f'{prompt_type}_prompt_variant_name'] = vname
 
         if 'model' in data:
             updates['model_override'] = data['model']
@@ -752,4 +790,112 @@ def quickplay_state(session_id):
         return jsonify(qp.get_state())
     except Exception as e:
         logger.error(f"Quick play state error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== Quick Play History ====================
+
+@lab.route('/quickplay/sessions', methods=['GET'])
+@require_admin
+def quickplay_sessions():
+    """List all quick play sessions."""
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        sessions, total = lab_db.list_quickplay_sessions(
+            session['user_id'], limit=limit, offset=offset
+        )
+        for s in sessions:
+            if 'created_at' in s:
+                s['created_at'] = format_datetime(s['created_at'])
+        return jsonify({'sessions': sessions, 'total': total})
+    except Exception as e:
+        logger.error(f"List sessions error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/quickplay/history', methods=['GET'])
+@require_admin
+def quickplay_history():
+    """List quick play turns with filtering."""
+    try:
+        filters = {
+            'session_id': request.args.get('session_id'),
+            'era_id': request.args.get('era_id'),
+            'model': request.args.get('model'),
+            'region': request.args.get('region'),
+            'system_prompt_variant_id': request.args.get('system_prompt_variant_id'),
+            'turn_prompt_variant_id': request.args.get('turn_prompt_variant_id'),
+            'arrival_prompt_variant_id': request.args.get('arrival_prompt_variant_id'),
+            'window_prompt_variant_id': request.args.get('window_prompt_variant_id'),
+            'date_from': request.args.get('date_from'),
+            'date_to': request.args.get('date_to'),
+        }
+        # Remove None values
+        filters = {k: v for k, v in filters.items() if v is not None}
+
+        limit = request.args.get('limit', 20, type=int)
+        offset = request.args.get('offset', 0, type=int)
+
+        turns, total = lab_db.list_quickplay_turns(
+            session['user_id'], limit=limit, offset=offset, **filters
+        )
+        for t in turns:
+            if 'created_at' in t:
+                t['created_at'] = format_datetime(t['created_at'])
+
+        # Get filter options
+        filter_options = lab_db.get_quickplay_filter_options(session['user_id'])
+
+        return jsonify({
+            'turns': turns,
+            'total': total,
+            'filters': filter_options,
+        })
+    except Exception as e:
+        logger.error(f"Quick play history error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/quickplay/turns/<turn_id>', methods=['GET'])
+@require_admin
+def quickplay_turn_detail(turn_id):
+    """Get a single quick play turn with full details."""
+    try:
+        turn = lab_db.get_quickplay_turn(turn_id)
+        if not turn:
+            return jsonify({'error': 'Turn not found'}), 404
+        if 'created_at' in turn:
+            turn['created_at'] = format_datetime(turn['created_at'])
+        return jsonify(turn)
+    except Exception as e:
+        logger.error(f"Quick play turn detail error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# Image Lab
+# =============================================================================
+
+@lab.route('/generate-image', methods=['POST'])
+@require_admin
+def generate_image():
+    """Generate an image directly from a prompt string. Used by the Image Lab tab."""
+    data = request.get_json()
+    prompt = (data.get('prompt') or '').strip()
+    if not prompt:
+        return jsonify({'error': 'prompt is required'}), 400
+
+    model = data.get('model', 'gpt-image-1.5')
+    quality = data.get('quality', 'medium')
+    size = data.get('size', '1536x1024')
+
+    try:
+        from portrait_generator import generate_image_from_prompt
+        path = generate_image_from_prompt(prompt, model=model, quality=quality, size=size)
+        if not path:
+            return jsonify({'error': 'Image generation failed — check OPENAI_API_KEY'}), 503
+        return jsonify({'image_path': path, 'prompt': prompt}), 201
+    except Exception as e:
+        logger.error(f"Image lab generation error: {e}")
         return jsonify({'error': str(e)}), 500

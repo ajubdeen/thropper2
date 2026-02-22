@@ -9,6 +9,8 @@ import ComparisonView from "@/components/lab/comparison-view";
 import PromptLibrary from "@/components/lab/prompt-library";
 import GenerationHistory from "@/components/lab/generation-history";
 import QuickPlayPanel from "@/components/lab/quick-play-panel";
+import QuickPlayHistory from "@/components/lab/quickplay-history";
+import { ImageLab } from "@/components/lab/image-lab";
 
 const ADMIN_EMAIL = "aju.bdeen@gmail.com";
 
@@ -19,6 +21,7 @@ export default function NarrativeLab() {
   );
   const [comparisonGroup, setComparisonGroup] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("snapshots");
+  const [historySubTab, setHistorySubTab] = useState<"quickplay" | "generations">("quickplay");
 
   if (isLoading) {
     return (
@@ -66,13 +69,14 @@ export default function NarrativeLab() {
       {/* Main content */}
       <div className="max-w-7xl mx-auto px-4 py-4">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-7">
             <TabsTrigger value="snapshots">Snapshots</TabsTrigger>
             <TabsTrigger value="generate">Generate</TabsTrigger>
             <TabsTrigger value="compare">Compare</TabsTrigger>
             <TabsTrigger value="prompts">Prompts</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="quickplay">Quick Play</TabsTrigger>
+            <TabsTrigger value="image-lab">Image Lab</TabsTrigger>
           </TabsList>
 
           <div className="mt-4">
@@ -133,11 +137,37 @@ export default function NarrativeLab() {
             </TabsContent>
 
             <TabsContent value="history">
-              <GenerationHistory />
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Button
+                    variant={historySubTab === "quickplay" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setHistorySubTab("quickplay")}
+                  >
+                    Quick Play
+                  </Button>
+                  <Button
+                    variant={historySubTab === "generations" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setHistorySubTab("generations")}
+                  >
+                    Generations
+                  </Button>
+                </div>
+                {historySubTab === "quickplay" ? (
+                  <QuickPlayHistory onBranchSnapshot={handleBranchSnapshot} />
+                ) : (
+                  <GenerationHistory />
+                )}
+              </div>
             </TabsContent>
 
             <TabsContent value="quickplay">
               <QuickPlayPanel onBranchSnapshot={handleBranchSnapshot} />
+            </TabsContent>
+
+            <TabsContent value="image-lab">
+              <ImageLab />
             </TabsContent>
           </div>
         </Tabs>

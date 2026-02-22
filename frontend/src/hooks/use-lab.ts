@@ -12,6 +12,8 @@ import type {
   BatchGenerateRequest,
   LiveStatus,
   VersionHistoryEntry,
+  ImageGenerateRequest,
+  LabImageResult,
 } from "@/types/lab";
 
 // ==================== Snapshots ====================
@@ -561,3 +563,76 @@ export function useQuickPlayUpdateParams() {
     },
   });
 }
+
+// ==================== Quick Play History ====================
+
+import type {
+  QuickPlaySessionRecord,
+  QuickPlayTurn,
+  QuickPlayHistoryFilters,
+  QuickPlayFilterOptions,
+} from "@/types/lab";
+
+export function useQuickPlaySessions(limit = 20, offset = 0) {
+  return useQuery<{ sessions: QuickPlaySessionRecord[]; total: number }>({
+    queryKey: ["/api/lab/quickplay/sessions", limit, offset],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/lab/quickplay/sessions?limit=${limit}&offset=${offset}`
+      );
+      return res.json();
+    },
+  });
+}
+
+export function useQuickPlayHistory(filters: QuickPlayHistoryFilters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  }
+  const qs = params.toString();
+
+  return useQuery<{
+    turns: QuickPlayTurn[];
+    total: number;
+    filters: QuickPlayFilterOptions;
+  }>({
+    queryKey: ["/api/lab/quickplay/history", qs],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/lab/quickplay/history${qs ? `?${qs}` : ""}`
+      );
+      return res.json();
+    },
+  });
+}
+
+export function useQuickPlayTurnDetail(turnId: string | null) {
+  return useQuery<QuickPlayTurn>({
+    queryKey: ["/api/lab/quickplay/turns", turnId],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/lab/quickplay/turns/${turnId}`
+      );
+      return res.json();
+    },
+    enabled: !!turnId,
+  });
+}
+
+// ==================== Image Lab ====================
+
+export function useGenerateImage() {
+  return useMutation<LabImageResult, Error, ImageGenerateRequest>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/lab/generate-image", data);
+      return res.json();
+    },
+  });
+}
+
