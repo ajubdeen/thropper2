@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS lab_prompt_variants (
 
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_user ON lab_prompt_variants(user_id);
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_type ON lab_prompt_variants(prompt_type);
-CREATE INDEX IF NOT EXISTS idx_lab_prompts_live ON lab_prompt_variants(is_live) WHERE is_live = TRUE;
+-- Note: idx_lab_prompts_live is created in MIGRATIONS after is_live column is added
 
 -- Quick Play sessions: persisted session config for history tracking
 CREATE TABLE IF NOT EXISTS lab_quickplay_sessions (
