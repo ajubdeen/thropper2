@@ -61,6 +61,10 @@ init_oauth(app)
 from lab_routes import lab
 app.register_blueprint(lab)
 
+# Run DB schema creation and migrations on startup (all statements are idempotent)
+from init_db import init_db
+init_db()
+
 # Load active prompt overrides from DB into memory cache
 from prompt_overrides import load_overrides_from_db
 load_overrides_from_db()
