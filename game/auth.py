@@ -84,9 +84,9 @@ def login():
         logger.warning("Google OAuth not configured, using demo mode")
         # Fallback to demo user for development
         session['user_id'] = 'demo_user'
-        session['email'] = 'demo@anachron.game'
+        session['email'] = 'aju.bdeen@gmail.com'
         session['firstName'] = 'Demo'
-        session['lastName'] = 'User'
+        session['lastName'] = 'Admin'
         session.permanent = True
         return redirect('/')
 

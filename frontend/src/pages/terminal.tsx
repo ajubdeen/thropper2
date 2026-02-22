@@ -83,10 +83,12 @@ interface LeaderboardEntry {
   final_era: string;
   timestamp: string;
   ending_narrative?: string;
+  historian_narrative?: string;
   belonging_score?: number;
   legacy_score?: number;
   freedom_score?: number;
   blurb?: string;
+  portrait_image_path?: string;
 }
 
 // Journey Progress Types
@@ -868,7 +870,16 @@ export default function GamePage() {
                   <p className="text-gray-500 text-center py-8">No scores yet: Play your first game!</p>
                 ) : (
                   leaderboard.map((entry, i) => (
-                    <Card key={i} className="bg-gray-900 border-gray-700">
+                    <Card key={i} className="bg-gray-900 border-gray-700 overflow-hidden">
+                      {entry.portrait_image_path && (
+                        <div className="w-full h-28 overflow-hidden">
+                          <img
+                            src={entry.portrait_image_path}
+                            alt=""
+                            className="w-full h-full object-cover object-[center_30%]"
+                          />
+                        </div>
+                      )}
                       <CardContent className="p-3 flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-amber-400 font-bold">
                           {i + 1}
@@ -882,7 +893,7 @@ export default function GamePage() {
                             <span className="capitalize">{entry.ending_type}</span>
                             <span>&middot;</span>
                             <span>{entry.final_era}</span>
-                            {entry.ending_narrative && (
+                            {(entry.ending_narrative || entry.historian_narrative) && (
                               <>
                                 <span>&middot;</span>
                                 <button
@@ -905,12 +916,21 @@ export default function GamePage() {
             
             <Dialog open={!!storyModalEntry} onOpenChange={(open) => !open && setStoryModalEntry(null)}>
               <DialogContent className="bg-gray-900 border-gray-700 max-w-2xl max-h-[80vh] flex flex-col">
+                {storyModalEntry?.portrait_image_path && (
+                  <div className="w-full rounded-lg overflow-hidden -mt-2 mb-2">
+                    <img
+                      src={storyModalEntry.portrait_image_path}
+                      alt="Journey portrait"
+                      className="w-full h-auto"
+                    />
+                  </div>
+                )}
                 <DialogHeader>
                   <DialogTitle className="text-amber-400">
                     {storyModalEntry?.player_name || 'Anonymous'} chose to stay in {storyModalEntry?.final_era}
                   </DialogTitle>
                 </DialogHeader>
-                
+
                 <div className="space-y-4 pb-2">
                   <div className="text-gray-300">
                     <span className="text-amber-400 font-bold text-lg">{storyModalEntry?.total} pts</span>
@@ -951,9 +971,18 @@ export default function GamePage() {
                 
                 <div className="border-t border-gray-700 pt-4 flex-1 overflow-hidden">
                   <ScrollArea className="h-[40vh]">
-                    <div className="text-gray-300 whitespace-pre-wrap leading-relaxed pr-4">
-                      {storyModalEntry?.ending_narrative}
-                    </div>
+                    <div
+                      className="text-gray-300 leading-relaxed pr-4 prose prose-invert prose-sm max-w-none prose-strong:text-amber-400 prose-p:my-2"
+                      dangerouslySetInnerHTML={{
+                        __html: (storyModalEntry?.historian_narrative || storyModalEntry?.ending_narrative || '')
+                          .replace(/^# (.+)$/gm, '<h3 class="text-amber-400 font-bold text-lg my-3">$1</h3>')
+                          .replace(/^---$/gm, '<hr class="border-gray-700 my-4" />')
+                          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                          .replace(/\n\n/g, '</p><p>')
+                          .replace(/^/, '<p>')
+                          .replace(/$/, '</p>')
+                      }}
+                    />
                   </ScrollArea>
                 </div>
               </DialogContent>
@@ -1146,9 +1175,15 @@ export default function GamePage() {
                   </div>
                 )}
                 
-                <div className="text-gray-300 leading-relaxed whitespace-pre-wrap">
-                  {narrative.replace(/\n\s*\[[^\]]+\][^\n]*/g, '')}
-                </div>
+                <div
+                  className="text-gray-300 leading-relaxed whitespace-pre-wrap [&_strong]:text-amber-200 [&_strong]:font-semibold"
+                  dangerouslySetInnerHTML={{
+                    __html: narrative
+                      .replace(/\n\s*\*{0,2}\[[A-Ca-c]\]\*{0,2}[^\n]*/g, '')
+                      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                  }}
+                />
                 
                 {isLoading && (
                   <div className="flex items-center gap-3 text-amber-400/80 mt-4">
@@ -1240,14 +1275,24 @@ export default function GamePage() {
                 </div>
               )}
               
-              <Button 
+              {finalScore?.annals?.portrait_image_path && (
+                <div className="w-full rounded-lg overflow-hidden border border-amber-600/30 shadow-lg shadow-amber-900/20">
+                  <img
+                    src={finalScore.annals.portrait_image_path}
+                    alt="Your journey portrait"
+                    className="w-full h-auto"
+                  />
+                </div>
+              )}
+
+              <Button
                 onClick={restartGame}
                 className="w-full bg-amber-600 hover:bg-amber-700 text-white py-4"
                 data-testid="button-play-again"
               >
                 Play Again
               </Button>
-              
+
               {finalScore && (
                 <Card className="bg-gray-900 border-gray-700">
                   <CardContent className="p-4 space-y-4">

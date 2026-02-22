@@ -161,21 +161,30 @@ class Storage:
                 return dict(cur.fetchone())
 
     def get_top_scores(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get top leaderboard scores."""
+        """Get top leaderboard scores with portrait image paths."""
         with get_db() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    "SELECT * FROM leaderboard_entries ORDER BY total_score DESC LIMIT %s",
+                    """SELECT l.*, COALESCE(a.portrait_image_path, l.portrait_image_path) AS portrait_image_path,
+                              a.historian_narrative
+                       FROM leaderboard_entries l
+                       LEFT JOIN aoa_entries a ON l.game_id = a.game_id
+                       ORDER BY l.total_score DESC LIMIT %s""",
                     (limit,)
                 )
                 return [dict(row) for row in cur.fetchall()]
 
     def get_user_scores(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get a user's leaderboard scores."""
+        """Get a user's leaderboard scores with portrait image paths."""
         with get_db() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    "SELECT * FROM leaderboard_entries WHERE user_id = %s ORDER BY total_score DESC LIMIT %s",
+                    """SELECT l.*, COALESCE(a.portrait_image_path, l.portrait_image_path) AS portrait_image_path,
+                              a.historian_narrative
+                       FROM leaderboard_entries l
+                       LEFT JOIN aoa_entries a ON l.game_id = a.game_id
+                       WHERE l.user_id = %s
+                       ORDER BY l.total_score DESC LIMIT %s""",
                     (user_id, limit)
                 )
                 return [dict(row) for row in cur.fetchall()]

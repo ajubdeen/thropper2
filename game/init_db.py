@@ -208,6 +208,66 @@ CREATE TABLE IF NOT EXISTS lab_prompt_variants (
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_user ON lab_prompt_variants(user_id);
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_type ON lab_prompt_variants(prompt_type);
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_live ON lab_prompt_variants(is_live) WHERE is_live = TRUE;
+
+-- Quick Play sessions: persisted session config for history tracking
+CREATE TABLE IF NOT EXISTS lab_quickplay_sessions (
+    id VARCHAR PRIMARY KEY,
+    user_id VARCHAR NOT NULL,
+    player_name VARCHAR,
+    region VARCHAR,
+    system_prompt_variant_id VARCHAR,
+    system_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    turn_prompt_variant_id VARCHAR,
+    turn_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    arrival_prompt_variant_id VARCHAR,
+    arrival_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    window_prompt_variant_id VARCHAR,
+    window_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    model VARCHAR,
+    temperature REAL,
+    dice_roll INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_qp_sessions_user ON lab_quickplay_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_qp_sessions_created ON lab_quickplay_sessions(created_at DESC);
+
+-- Quick Play turns: per-turn metadata with full audit trail
+CREATE TABLE IF NOT EXISTS lab_quickplay_turns (
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    session_id VARCHAR NOT NULL REFERENCES lab_quickplay_sessions(id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL,
+    turn_number INTEGER NOT NULL,
+    turn_type VARCHAR NOT NULL,
+    era_id VARCHAR,
+    era_name VARCHAR,
+    era_year INTEGER,
+    era_location VARCHAR,
+    region VARCHAR,
+    system_prompt_variant_id VARCHAR,
+    system_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    turn_prompt_variant_id VARCHAR,
+    turn_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    arrival_prompt_variant_id VARCHAR,
+    arrival_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    window_prompt_variant_id VARCHAR,
+    window_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    model VARCHAR,
+    temperature REAL,
+    dice_roll INTEGER,
+    choice_made TEXT,
+    narrative_text TEXT,
+    choices JSONB DEFAULT '[]',
+    messages JSONB DEFAULT '[]',
+    snapshot_id VARCHAR,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_qp_turns_session ON lab_quickplay_turns(session_id);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_user ON lab_quickplay_turns(user_id);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_era ON lab_quickplay_turns(era_id);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_model ON lab_quickplay_turns(model);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_created ON lab_quickplay_turns(created_at DESC);
 """
 
 MIGRATIONS = """
@@ -218,6 +278,70 @@ ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS diff_vs_baseline TEXT;
 ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS diff_vs_previous TEXT;
 ALTER TABLE lab_prompt_variants ADD COLUMN IF NOT EXISTS change_summary TEXT;
 CREATE INDEX IF NOT EXISTS idx_lab_prompts_live ON lab_prompt_variants(is_live) WHERE is_live = TRUE;
+
+-- Migration: Add Quick Play session/turn tables
+CREATE TABLE IF NOT EXISTS lab_quickplay_sessions (
+    id VARCHAR PRIMARY KEY,
+    user_id VARCHAR NOT NULL,
+    player_name VARCHAR,
+    region VARCHAR,
+    system_prompt_variant_id VARCHAR,
+    system_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    turn_prompt_variant_id VARCHAR,
+    turn_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    arrival_prompt_variant_id VARCHAR,
+    arrival_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    window_prompt_variant_id VARCHAR,
+    window_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    model VARCHAR,
+    temperature REAL,
+    dice_roll INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_qp_sessions_user ON lab_quickplay_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_qp_sessions_created ON lab_quickplay_sessions(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS lab_quickplay_turns (
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    session_id VARCHAR NOT NULL REFERENCES lab_quickplay_sessions(id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL,
+    turn_number INTEGER NOT NULL,
+    turn_type VARCHAR NOT NULL,
+    era_id VARCHAR,
+    era_name VARCHAR,
+    era_year INTEGER,
+    era_location VARCHAR,
+    region VARCHAR,
+    system_prompt_variant_id VARCHAR,
+    system_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    turn_prompt_variant_id VARCHAR,
+    turn_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    arrival_prompt_variant_id VARCHAR,
+    arrival_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    window_prompt_variant_id VARCHAR,
+    window_prompt_variant_name VARCHAR DEFAULT 'Baseline',
+    model VARCHAR,
+    temperature REAL,
+    dice_roll INTEGER,
+    choice_made TEXT,
+    narrative_text TEXT,
+    choices JSONB DEFAULT '[]',
+    messages JSONB DEFAULT '[]',
+    snapshot_id VARCHAR,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_session ON lab_quickplay_turns(session_id);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_user ON lab_quickplay_turns(user_id);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_era ON lab_quickplay_turns(era_id);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_model ON lab_quickplay_turns(model);
+CREATE INDEX IF NOT EXISTS idx_qp_turns_created ON lab_quickplay_turns(created_at DESC);
+
+-- Migration: Add choices column to lab_quickplay_turns
+ALTER TABLE lab_quickplay_turns ADD COLUMN IF NOT EXISTS choices JSONB DEFAULT '[]';
+
+-- Migration: Add portrait image columns to aoa_entries
+ALTER TABLE aoa_entries ADD COLUMN IF NOT EXISTS portrait_image_path TEXT;
+ALTER TABLE aoa_entries ADD COLUMN IF NOT EXISTS portrait_prompt TEXT;
 """
 
 def init_db():

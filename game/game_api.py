@@ -898,7 +898,8 @@ class GameAPI:
         """
         # Roll dice for this turn (lab override if set)
         roll = self.dice_roll_override if self.dice_roll_override is not None else random.randint(1, 20)
-        
+        self.last_dice_roll = roll
+
         # Advance turn - this may open or close the window
         events = self.state.advance_turn()
         
@@ -1463,28 +1464,32 @@ class GameAPI:
         print("=" * 60)
         # END DEBUG
         
+        is_stay_ending = ending_type_override is None and score.ending_type != "abandoned"
+        portrait_path = None
+
         try:
             aoa_entry = annals.create_entry(self.state, score)
-            
-            # DEBUG: AoA entry result
-            if aoa_entry:
-                print("DEBUG: AoA entry CREATED successfully")
-                print(f"  entry_id: {aoa_entry.entry_id}")
-                print(f"  character_name: {aoa_entry.character_name}")
-                print(f"  key_npcs: {aoa_entry.key_npcs}")
-                print(f"  wisdom_moments: {aoa_entry.wisdom_moments}")
-            else:
-                print("DEBUG: AoA entry NOT created (did not qualify)")
-            
+
             if aoa_entry:
                 # Generate historian narrative using AI
                 historian_prompt = get_historian_narrative_prompt(aoa_entry)
                 historian_narrative = self.narrator.generate(historian_prompt)
                 aoa_entry.historian_narrative = historian_narrative
-                
+
                 # Save to annals
                 annals.save_entry(aoa_entry)
-                
+
+                # Generate portrait via AoA entry
+                if score.total >= 300 and is_stay_ending:
+                    try:
+                        yield emit(MessageType.LOADING, {"text": "Creating your portrait..."})
+                        import portrait_generator
+                        portrait_path = portrait_generator.generate_portrait(aoa_entry.entry_id)
+                        if portrait_path:
+                            logger.info(f"Portrait generated: {portrait_path}")
+                    except Exception as pe:
+                        logger.error(f"Portrait generation failed: {pe}")
+
                 # Prepare AoA data for response
                 aoa_data = {
                     "entry_id": aoa_entry.entry_id,
@@ -1493,7 +1498,54 @@ class GameAPI:
                     "historian_narrative": aoa_entry.historian_narrative,
                     "character_name": aoa_entry.character_name,
                     "final_era": aoa_entry.final_era,
-                    "final_era_year": aoa_entry.final_era_year
+                    "final_era_year": aoa_entry.final_era_year,
+                    "portrait_image_path": portrait_path,
+                }
+            else:
+                # No AoA entry, but still generate portrait if qualifying
+                if score.total >= 300 and is_stay_ending:
+                    try:
+                        yield emit(MessageType.LOADING, {"text": "Creating your portrait..."})
+                        import portrait_generator
+                        game_id = self.state.game_id if hasattr(self.state, 'game_id') else 'unknown'
+                        image_id = f"portrait_{game_id}"
+                        # Build minimal data dict for scene extraction
+                        char_name = self.state.current_era.character_name if self.state.current_era else 'The Traveler'
+                        era_name = self.state.current_era.era_name if self.state.current_era else 'Unknown'
+                        era_year = self.state.current_era.era_year if self.state.current_era else 0
+                        portrait_data = {
+                            'final_era': era_name,
+                            'final_era_year': era_year,
+                            'character_name': char_name,
+                            'ending_type': score.ending_type,
+                            'belonging_score': score.belonging_score,
+                            'legacy_score': score.legacy_score,
+                            'freedom_score': score.freedom_score,
+                            'key_npcs': [e.get('npc_name', '') for e in self.state.get_events_by_type('relationship')],
+                            'items_used': [e.get('item_name', '') for e in self.state.get_events_by_type('item_use')],
+                            'player_narrative': score.ending_narrative or '',
+                            'historian_narrative': '',
+                        }
+                        portrait_path = portrait_generator.generate_portrait_from_data(portrait_data, image_id)
+                        if portrait_path:
+                            logger.info(f"Portrait generated (no AoA): {portrait_path}")
+                            # Store path in leaderboard for display
+                            try:
+                                from db import get_db
+                                with get_db() as conn:
+                                    with conn.cursor() as cur:
+                                        cur.execute(
+                                            "UPDATE leaderboard_entries SET portrait_image_path = %s WHERE game_id = %s",
+                                            (portrait_path, game_id)
+                                        )
+                            except Exception:
+                                pass
+                    except Exception as pe:
+                        logger.error(f"Portrait generation (no AoA) failed: {pe}")
+
+                aoa_data = {
+                    "qualified": False,
+                    "portrait_image_path": portrait_path,
                 }
         except Exception as e:
             # Don't fail the whole score display if AoA fails
@@ -1630,7 +1682,9 @@ class GameAPI:
         # Strip both anchor tags and event tags
         clean_response = strip_anchor_tags(response)
         clean_response = strip_event_tags(clean_response)
-        
+        # Strip markdown bold markers so **[A]** still matches
+        clean_response = re.sub(r'\*\*', '', clean_response)
+
         choices = []
         for line in clean_response.split('\n'):
             line = line.strip()

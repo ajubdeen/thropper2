@@ -111,9 +111,9 @@ class DatabaseLeaderboardStorage:
                 "playerName": score.get("player_name", "Unknown"),
                 "turnsSurvived": score.get("turns_survived", 0),
                 "erasVisited": score.get("eras_visited", 0),
-                "belongingScore": score.get("belonging", 0),
-                "legacyScore": score.get("legacy", 0),
-                "freedomScore": score.get("freedom", 0),
+                "belongingScore": score.get("belonging_score", 0),
+                "legacyScore": score.get("legacy_score", 0),
+                "freedomScore": score.get("freedom_score", 0),
                 "totalScore": score.get("total", 0),
                 "endingType": score.get("ending_type", ""),
                 "finalEra": score.get("final_era", ""),
@@ -144,22 +144,26 @@ class DatabaseLeaderboardStorage:
 
     def _format_score(self, s: dict) -> dict:
         """Format database score to expected format"""
-        return {
+        result = {
             "user_id": s.get("user_id"),
             "game_id": s.get("game_id"),
             "player_name": s.get("player_name"),
             "turns_survived": s.get("turns_survived"),
             "eras_visited": s.get("eras_visited"),
-            "belonging": s.get("belonging_score"),
-            "legacy": s.get("legacy_score"),
-            "freedom": s.get("freedom_score"),
+            "belonging_score": s.get("belonging_score"),
+            "legacy_score": s.get("legacy_score"),
+            "freedom_score": s.get("freedom_score"),
             "total": s.get("total_score"),
             "ending_type": s.get("ending_type"),
             "final_era": s.get("final_era"),
             "blurb": s.get("blurb"),
             "ending_narrative": s.get("ending_narrative"),
+            "historian_narrative": s.get("historian_narrative"),
             "timestamp": s.get("created_at").isoformat() if s.get("created_at") else None,
         }
+        if s.get("portrait_image_path"):
+            result["portrait_image_path"] = s["portrait_image_path"]
+        return result
 
 
 class DatabaseGameHistory:

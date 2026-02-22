@@ -50,3 +50,20 @@ game/*.json
 # Development artifacts
 attached_assets/
 *.zip
+node_modules/
+seed_search_out/
+data/portraits/
+*.png
+!static/**/*.png
+game/seed_search.py
+
+# Screenshots and reference images
+gameScreenshots/
+ChatGPT Image*
+auto_image.txt
+hero seed search.txt
+image_template.png
+ChatGPTPromptSuggestion.txt
+
+# Claude settings
+.claude/

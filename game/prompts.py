@@ -773,8 +773,8 @@ def get_staying_ending_prompt(game_state: GameState, era: dict) -> str:
 
     return f"""THE PLAYER HAS CHOSEN TO STAY FOREVER.
 
-After {time_in_era} in {era['name']}, they let the window close for the last time.
-The device goes dark and cold. The journey is over.
+After {time_in_era} in {era['name']}, {character_name} let the window close for the last time.
+The journey is over.
 
 CHARACTER: {character_name}
 ENDING TYPE: {ending_type}
@@ -787,42 +787,40 @@ EMOTIONAL ARC: {config['emotional_arc']}
 {relationships_context}
 {wisdom_context}
 
-Write their ending with ONLY these section headers (use the exact text in quotes):
+IMPORTANT: Write entirely in THIRD PERSON. Use "{character_name}", "they", "them", "their" — NEVER "you" or "your". This narrative will be displayed publicly on a leaderboard.
 
-**This is home now**
-(1 paragraph) The window closing, the device going silent, the choice becoming permanent.
-This moment should feel like release, not loss.
+Write the ending with ONLY these two section headers (use the exact text, replacing [name] with the character's name):
 
-**The life you built**
-(3-4 paragraphs) {config['years_after_guidance']}
+**The life of {character_name}**
+(4-5 paragraphs) {config['years_after_guidance']}
 
 Be SPECIFIC. Use names. Reference actual events from the playthrough.
 Show time passing - seasons, years, aging.
-Era-appropriate details of how life unfolds here.
+Era-appropriate details of how life unfolds.
 
 Seamlessly continue into how their story concludes - years or decades later.
 {config['ending_imagery']}
 {ripple_instruction}
 
-**Historical Footnotes**
-(1-2 paragraphs) Switch to an educational tone - speak directly as the narrator/game.
+**Historical Context**
+(1-2 paragraphs) Weave {character_name}'s specific achievements and choices into real historical context about {era['name']}.
 
-What did the player actually learn about this era that's historically true?
+This is NOT a Wikipedia article. Instead:
+- Show how their particular path (the relationships they built, the work they did, the choices they made) fits within the real historical conditions of this era
 - Reference any wisdom moments listed above if present
-- Social structures, economic realities, daily life details
-- Why certain choices worked or didn't in this specific historical context
-- Connect their fictional journey to real historical facts about {era['name']}
+- Explain WHY their choices worked or didn't given the actual social structures, economics, and daily realities of the time
+- Make the history feel personal — they lived through it, so tell the history through the lens of their experience
 
-Tone: Like a museum placard or documentary epilogue. Informative, not preachy.
-This section should leave the player feeling they learned something real about history.
+Tone: Like a master historian reflecting on one life within a larger tapestry. Warm, insightful, educational but personal.
 
 CRITICAL GUIDELINES:
-- Use ONLY these three headers: "This is home now", "The life you built", "Historical Footnotes"
+- Use ONLY these two headers: "The life of {character_name}", "Historical Context"
 - Format headers with ** on each side (markdown bold)
+- THIRD PERSON ONLY — never "you" or "your"
 - Make the narrative feel EARNED based on everything that came before
 - Reference specific relationships, achievements, and choices from the playthrough
 - The ending should feel like arrival, not settling
-- Match the tone to the ending type (except Historical Footnotes which is educational): {config['tone']}
+- Match the tone to the ending type: {config['tone']}
 - Keep total length around 500-600 words
 
 This is the end of the game. Make it resonate AND educate.
@@ -1020,23 +1018,40 @@ CLOSING THEME: {angle['closing_theme']}
 STRUCTURE:
 
 1. TITLE (one evocative line):
-   Format: "The [Role] Who [Achievement]" - e.g., "The Clerk Who Rebuilt France"
-   Make it memorable, specific to their story.
+   Format as markdown heading: # [title]
+   This title will be displayed publicly on a leaderboard — it should be something the player
+   would be PROUD to share on social media. Think epic fantasy chapter titles, film taglines,
+   or mythic epithets. Short, musical, and striking.
 
-2. THE STORY (4-5 paragraphs, ~200 words total):
+   Think of how Homer would name a hero. Think of how a folk song would remember someone.
+   A mythic epithet or biographical ballad title. Something the player would proudly display
+   on a social profile. The title is about the CHARACTER — their journey, their place in the era.
 
-   Opening: One sentence establishing the hook. "In the chaos of X, a man/woman called Y rose from nowhere to..."
+   It must be SPECIFIC to this character and era — not generic enough to fit any adventure.
 
-   Arrival: One paragraph. First appearance in records - "unnervingly capable", "recognized something in him/her".
-   The local lord, church leadership, the garrison commander - USE ROLES NOT NAMES (except spouse/family).
+   GOOD examples: "# Jack of the Golden Gate", "# The Iron Saint of Richmond",
+   "# Morrison Who Joined Two Shores", "# Alexios, Metic of Athens",
+   "# The Stranger Who Kept Athens Fed"
 
-   Rise: One paragraph. "What followed was unprecedented." Key relationships and achievements.
-   For spouse: "He found love with [Name], a [role] with whom he built a life that would have seemed impossible mere seasons before."
-   For others: generalize to roles.
+   BAD examples: "# Built on Borrowed Days" (generic, no character),
+   "# The Restaurateur Who Built Home from Remnants" (clunky, not poetic),
+   "# A Life Well Lived" (platitude)
 
-   Legacy: One paragraph. What they built, what spread, what endured.
+   3-6 words. Musical. Proud. Specific. No colons or subtitles.
 
-   Closing: One resonant line. "Perhaps he understood what the dying age could not: that [closing_theme]."
+2. THE STORY (~80-100 words, ONE paragraph only):
+
+   Opening line: One striking sentence establishing who they were and what they did.
+   e.g., "In the shipyards of wartime San Francisco, a man called Jack Morrison appeared from nowhere and built a legacy that would outlast the century."
+
+   Then ONE dense, poetic paragraph. This reads like a passage from a mythic ballad —
+   prose with the rhythm and sweep of poetry. Compress the entire journey into vivid,
+   flowing sentences: arrival, rise, key relationships (name spouse/family), greatest achievement.
+   Each sentence should build on the last like verses of an epic. Use rich imagery and cadence.
+
+   Final line: A resonant closing that CELEBRATES the life but leaves MYSTERY humming underneath.
+   Not a summary — a line that makes the reader pause and wonder about what was left unsaid.
+   e.g., "Perhaps he understood what the dying age could not: that {angle['closing_theme']}."
 
 STYLE RULES:
 - VIVID language: "unnervingly capable", "bound his patron's loyalty for life", "no easy mark"
@@ -1051,6 +1066,8 @@ FORBIDDEN:
 - "anachronistic", "mysterious origins" (stated explicitly)
 - "further research may illuminate"
 - Listing achievements - weave them into narrative
+- Any mention of: device, time machine, time travel, other eras, Athens/Rome/etc (unless it IS the final era)
+- Any mention of: window closing, choosing to stay, the game itself
 - Names for non-family NPCs
 
 The player ending narrative (extract Historical Footnotes section for the history section below):

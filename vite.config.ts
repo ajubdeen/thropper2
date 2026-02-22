@@ -16,4 +16,14 @@ export default defineConfig({
     outDir: path.resolve(__dirname, "static"),
     emptyOutDir: true,
   },
+  server: {
+    proxy: {
+      "/api": "http://localhost:5000",
+      "/portraits": "http://localhost:5000",
+      "/socket.io": {
+        target: "http://localhost:5000",
+        ws: true,
+      },
+    },
+  },
 });

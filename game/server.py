@@ -29,26 +29,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def markdown_bold_to_ansi(text: str) -> str:
-    """Convert markdown **bold** to ANSI bold escape codes for terminal display."""
-    if not text:
-        return text
-    return re.sub(r'\*\*([^*]+)\*\*', r'\033[1m\1\033[0m', text)
-
-
 def emit(event: str, data: dict):
-    """Wrapper for emit that converts markdown bold to ANSI in narrative messages."""
-    if event == 'message' and isinstance(data, dict):
-        msg_type = data.get('type', '')
-        if msg_type in ('narrative', 'narrative_chunk') and 'data' in data:
-            msg_data = data['data']
-            if isinstance(msg_data, dict) and 'text' in msg_data:
-                msg_data['text'] = markdown_bold_to_ansi(msg_data['text'])
+    """Wrapper for raw_emit."""
     raw_emit(event, data)
 
 
 # Determine static files directory
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
+PORTRAITS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'portraits')
 
 app = Flask(__name__, static_folder=None)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET') or os.urandom(24).hex()
@@ -92,6 +80,12 @@ socketio = SocketIO(
 def serve_index():
     """Serve the React app's index.html."""
     return send_from_directory(STATIC_DIR, 'index.html')
+
+
+@app.route('/portraits/<path:filename>')
+def serve_portrait(filename):
+    """Serve portrait images from data/portraits/ (outside build output)."""
+    return send_from_directory(PORTRAITS_DIR, filename)
 
 
 @app.route('/<path:path>')
