@@ -837,32 +837,47 @@ export default function GamePage() {
               )}
               
               <div className="pt-4 border-t border-gray-800/50 mt-2">
-                {aoaGallery.length > 0 && (() => {
-                  const entry = aoaGallery[galleryIndex % aoaGallery.length];
-                  const titleMatch = entry.historian_narrative?.match(/^#\s+(.+)/m);
-                  const title = titleMatch ? titleMatch[1].trim() : (entry.player_name || '');
-                  return (
-                    <button
-                      onClick={() => showLeaderboard(true)}
-                      className="w-full mb-1 block cursor-pointer"
-                    >
-                      <p className="text-xs text-gray-500 uppercase tracking-widest text-center mb-2">Annals of Anachron</p>
-                      <div className="relative aspect-[3/2] overflow-hidden rounded-lg">
-                        <img
-                          src={entry.portrait_image_path!}
-                          alt=""
-                          className="w-full h-full object-cover object-[center_25%] transition-opacity duration-700"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
-                        {title && (
-                          <div className="absolute bottom-2 left-3 right-3 text-sm text-amber-300 font-medium text-left leading-tight">
-                            {title}
-                          </div>
-                        )}
+                {aoaGallery.length > 0 && (
+                  <button
+                    onClick={() => showLeaderboard(true)}
+                    className="w-full mb-1 block cursor-pointer"
+                  >
+                    <p className="text-xs text-gray-500 uppercase tracking-widest text-center mb-2">Annals of Anachron</p>
+                    <div className="relative aspect-[3/2] overflow-hidden rounded-lg">
+                      <div
+                        className="flex h-full transition-transform duration-500 ease-in-out"
+                        style={{
+                          width: `${aoaGallery.length * 100}%`,
+                          transform: `translateX(-${(galleryIndex % aoaGallery.length) * (100 / aoaGallery.length)}%)`,
+                        }}
+                      >
+                        {aoaGallery.map((entry, i) => {
+                          const titleMatch = entry.historian_narrative?.match(/^#\s+(.+)/m);
+                          const title = titleMatch ? titleMatch[1].trim() : (entry.player_name || '');
+                          return (
+                            <div
+                              key={i}
+                              className="relative h-full flex-shrink-0"
+                              style={{ width: `${100 / aoaGallery.length}%` }}
+                            >
+                              <img
+                                src={entry.portrait_image_path!}
+                                alt=""
+                                className="w-full h-full object-cover object-[center_25%]"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+                              {title && (
+                                <div className="absolute bottom-2 left-3 right-3 text-sm text-amber-300 font-medium text-left leading-tight">
+                                  {title}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    </button>
-                  );
-                })()}
+                    </div>
+                  </button>
+                )}
               </div>
             </div>
           </div>
