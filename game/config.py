@@ -5,16 +5,20 @@ All tunable game parameters live here. Adjust these to change game feel
 without touching game logic.
 """
 
+import os
+
 # =============================================================================
 # AI MODEL
 # =============================================================================
 
 # Claude model for turn-by-turn gameplay narration (speed matters)
-NARRATIVE_MODEL = "claude-sonnet-4-5-20250929"
+# Override with NARRATIVE_MODEL env var
+NARRATIVE_MODEL = os.environ.get("NARRATIVE_MODEL", "claude-sonnet-4-6")
 
 # Claude model for high-stakes, one-time generations (quality matters)
 # Used for: ending narratives, historian narratives, pullquotes
-PREMIUM_MODEL = "claude-opus-4-6"
+# Override with PREMIUM_MODEL env var
+PREMIUM_MODEL = os.environ.get("PREMIUM_MODEL", "claude-opus-4-6")
 
 # =============================================================================
 # ERA REGIONS
@@ -213,8 +217,6 @@ SHOW_DEVICE_STATUS = True  # Show time machine indicator in UI
 # =============================================================================
 # DEBUG SETTINGS (Development Only)
 # =============================================================================
-
-import os
 
 # Set DEBUG_ERA to a valid era ID to force that era (e.g., "cold_war_germany")
 # Only works when DEBUG_MODE is also True
