@@ -863,15 +863,6 @@ export default function GamePage() {
                     </button>
                   );
                 })()}
-                <Button
-                  onClick={() => showLeaderboard(true)}
-                  variant="ghost"
-                  className="w-full text-gray-400 hover:text-amber-400 gap-2 py-3"
-                  data-testid="button-leaderboard"
-                >
-                  <Trophy className="w-4 h-4" />
-                  Annals of Anachron
-                </Button>
               </div>
             </div>
           </div>
