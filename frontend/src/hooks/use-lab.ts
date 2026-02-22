@@ -14,6 +14,7 @@ import type {
   VersionHistoryEntry,
   ImageGenerateRequest,
   LabImageResult,
+  LabNarrative,
 } from "@/types/lab";
 
 // ==================== Snapshots ====================
@@ -626,6 +627,25 @@ export function useQuickPlayTurnDetail(turnId: string | null) {
 }
 
 // ==================== Image Lab ====================
+
+export function useNarratives() {
+  return useQuery<{ narratives: LabNarrative[] }>({
+    queryKey: ["/api/lab/narratives"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/lab/narratives");
+      return res.json();
+    },
+  });
+}
+
+export function useExtractScene() {
+  return useMutation<{ prompt_text: string }, Error, { entry_id: string }>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/lab/extract-scene", data);
+      return res.json();
+    },
+  });
+}
 
 export function useGenerateImage() {
   return useMutation<LabImageResult, Error, ImageGenerateRequest>({

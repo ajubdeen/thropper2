@@ -224,6 +224,18 @@ export interface QuickPlayHistoryFilters {
   offset?: number;
 }
 
+export interface LabNarrative {
+  entry_id: string;
+  character_name: string;
+  player_name: string | null;
+  final_era: string;
+  final_era_year: number | null;
+  ending_type: string;
+  total_score: number;
+  created_at: string;
+  player_narrative: string;
+}
+
 export interface ImageGenerateRequest {
   prompt: string;
   model: string;

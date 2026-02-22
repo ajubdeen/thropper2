@@ -877,6 +877,57 @@ def quickplay_turn_detail(turn_id):
 # Image Lab
 # =============================================================================
 
+@lab.route('/narratives', methods=['GET'])
+@require_admin
+def list_narratives():
+    """List AoA entries for the Image Lab narrative dropdown."""
+    try:
+        from db import storage
+        entries = storage.get_recent_aoa_entries(limit=200)
+        result = []
+        for e in entries:
+            created = e.get('created_at', '')
+            result.append({
+                'entry_id': e['entry_id'],
+                'character_name': e.get('character_name', 'Unknown'),
+                'player_name': e.get('player_name'),
+                'final_era': e.get('final_era', ''),
+                'final_era_year': e.get('final_era_year'),
+                'ending_type': e.get('ending_type', ''),
+                'total_score': e.get('total_score', 0),
+                'created_at': created.isoformat() if hasattr(created, 'isoformat') else str(created),
+                'player_narrative': (e.get('player_narrative') or '')[:400],
+            })
+        return jsonify({'narratives': result})
+    except Exception as e:
+        logger.error(f"List narratives error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/extract-scene', methods=['POST'])
+@require_admin
+def extract_scene_route():
+    """Run Claude scene extraction + prompt assembly for an AoA entry."""
+    data = request.get_json()
+    entry_id = (data.get('entry_id') or '').strip()
+    if not entry_id:
+        return jsonify({'error': 'entry_id is required'}), 400
+    try:
+        from db import storage
+        from portrait_generator import extract_scene, build_image_prompt
+        aoa_data = storage.get_aoa_entry(entry_id)
+        if not aoa_data:
+            return jsonify({'error': 'Narrative not found'}), 404
+        scene = extract_scene(aoa_data)
+        if not scene:
+            return jsonify({'error': 'Scene extraction failed'}), 503
+        prompt_text = build_image_prompt(scene)
+        return jsonify({'prompt_text': prompt_text})
+    except Exception as e:
+        logger.error(f"Extract scene error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @lab.route('/generate-image', methods=['POST'])
 @require_admin
 def generate_image():

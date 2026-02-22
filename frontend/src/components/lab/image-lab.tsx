@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, ImageIcon } from "lucide-react";
-import { useGenerateImage } from "@/hooks/use-lab";
+import { useGenerateImage, useNarratives, useExtractScene } from "@/hooks/use-lab";
 
 // Default prompt — matches the current STYLE_BLOCK from portrait_generator.py
 const DEFAULT_PROMPT = `STYLE:
@@ -78,9 +78,34 @@ export function ImageLab() {
   const [model, setModel] = useState("gpt-image-1.5");
   const [quality, setQuality] = useState("medium");
   const [size, setSize] = useState("1536x1024");
-  const [result, setResult] = useState<{ image_path: string; generatedAt: string; model: string; quality: string; size: string } | null>(null);
+  const [selectedNarrative, setSelectedNarrative] = useState("");
+  const [result, setResult] = useState<{
+    image_path: string;
+    generatedAt: string;
+    model: string;
+    quality: string;
+    size: string;
+  } | null>(null);
+
+  const { data: narrativesData } = useNarratives();
+  const narratives = narrativesData?.narratives ?? [];
 
   const generate = useGenerateImage();
+  const extractScene = useExtractScene();
+
+  function handleNarrativeSelect(entry_id: string) {
+    setSelectedNarrative(entry_id);
+    if (!entry_id) {
+      setPrompt(DEFAULT_PROMPT);
+      return;
+    }
+    extractScene.mutate(
+      { entry_id },
+      {
+        onSuccess: (data) => setPrompt(data.prompt_text),
+      }
+    );
+  }
 
   function handleGenerate() {
     generate.mutate(
@@ -103,7 +128,33 @@ export function ImageLab() {
     <div className="grid grid-cols-1 lg:grid-cols-[30%_70%] gap-6 h-full">
       {/* Left pane — Prompt Editor */}
       <div className="flex flex-col gap-3">
-        {/* Parameter dropdowns */}
+
+        {/* Narrative dropdown */}
+        <Select value={selectedNarrative} onValueChange={handleNarrativeSelect}>
+          <SelectTrigger className="w-full h-8 text-xs">
+            <SelectValue placeholder="— Select a narrative —" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            <SelectItem value="" className="text-xs text-muted-foreground">
+              — Select a narrative —
+            </SelectItem>
+            {narratives.map((n) => (
+              <SelectItem key={n.entry_id} value={n.entry_id} className="text-xs">
+                <span title={n.player_narrative || undefined}>
+                  {n.character_name} — {n.final_era}
+                  {n.final_era_year ? ` (${n.final_era_year})` : ""}
+                  {"  "}[{n.total_score}]
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {extractScene.isError && (
+          <p className="text-xs text-destructive">{extractScene.error.message}</p>
+        )}
+
+        {/* Parameter dropdowns + Generate button */}
         <div className="flex flex-wrap gap-2 items-center">
           <Select value={model} onValueChange={setModel}>
             <SelectTrigger className="w-[160px] h-8 text-xs">
@@ -147,7 +198,7 @@ export function ImageLab() {
           <Button
             size="sm"
             onClick={handleGenerate}
-            disabled={generate.isPending || !prompt.trim()}
+            disabled={generate.isPending || extractScene.isPending || !prompt.trim()}
             className="ml-auto h-8"
           >
             {generate.isPending ? (
@@ -161,13 +212,23 @@ export function ImageLab() {
           </Button>
         </div>
 
-        {/* Prompt textarea */}
-        <Textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          className="flex-1 min-h-[calc(100vh-240px)] resize-none font-mono text-xs leading-relaxed"
-          placeholder="Enter image generation prompt…"
-        />
+        {/* Prompt textarea with extraction overlay */}
+        <div className="relative flex-1">
+          <Textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            className={`h-full min-h-[calc(100vh-280px)] resize-none font-mono text-xs leading-relaxed ${
+              extractScene.isPending ? "opacity-40 pointer-events-none" : ""
+            }`}
+            placeholder="Enter image generation prompt…"
+          />
+          {extractScene.isPending && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Extracting scene…</span>
+            </div>
+          )}
+        </div>
 
         {generate.isError && (
           <p className="text-xs text-destructive">{generate.error.message}</p>
