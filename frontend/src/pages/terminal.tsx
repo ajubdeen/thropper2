@@ -195,6 +195,8 @@ export default function GamePage() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [showGlobalLeaderboard, setShowGlobalLeaderboard] = useState(true);
   const [storyModalEntry, setStoryModalEntry] = useState<LeaderboardEntry | null>(null);
+  const [aoaGallery, setAoaGallery] = useState<LeaderboardEntry[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   // Journey Progress State
   const [journeyProgress, setJourneyProgress] = useState<JourneyProgress | null>(null);
@@ -211,6 +213,27 @@ export default function GamePage() {
   useEffect(() => {
     scrollToBottom();
   }, [narrative, choices, scrollToBottom]);
+
+  // Fetch AoA gallery entries when on menu
+  useEffect(() => {
+    if (phase !== "menu") return;
+    fetch('/api/leaderboard?limit=10')
+      .then(r => r.json())
+      .then((entries: LeaderboardEntry[]) => {
+        const withPortraits = entries.filter(e => e.portrait_image_path);
+        setAoaGallery(withPortraits);
+      })
+      .catch(() => {});
+  }, [phase]);
+
+  // Auto-rotate gallery
+  useEffect(() => {
+    if (aoaGallery.length <= 1) return;
+    const timer = setInterval(() => {
+      setGalleryIndex(i => (i + 1) % aoaGallery.length);
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [aoaGallery.length]);
 
   const handleMessage = useCallback((msg: GameMessage) => {
     switch (msg.type) {
@@ -814,14 +837,39 @@ export default function GamePage() {
               )}
               
               <div className="pt-4 border-t border-gray-800/50 mt-2">
-                <Button 
+                {aoaGallery.length > 0 && (() => {
+                  const entry = aoaGallery[galleryIndex % aoaGallery.length];
+                  const titleMatch = entry.historian_narrative?.match(/^#\s+(.+)/m);
+                  const title = titleMatch ? titleMatch[1].trim() : (entry.player_name || '');
+                  return (
+                    <button
+                      onClick={() => showLeaderboard(true)}
+                      className="w-full mb-3 block rounded-lg overflow-hidden cursor-pointer group"
+                    >
+                      <div className="relative aspect-[3/2] overflow-hidden rounded-lg">
+                        <img
+                          src={entry.portrait_image_path!}
+                          alt=""
+                          className="w-full h-full object-cover object-[center_25%] transition-opacity duration-700"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+                        {title && (
+                          <div className="absolute bottom-2 left-3 right-3 text-sm text-amber-300 font-medium text-left leading-tight">
+                            {title}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })()}
+                <Button
                   onClick={() => showLeaderboard(true)}
                   variant="ghost"
                   className="w-full text-gray-400 hover:text-amber-400 gap-2 py-5"
                   data-testid="button-leaderboard"
                 >
                   <Trophy className="w-4 h-4" />
-                  View Leaderboard
+                  Annals of Anachron
                 </Button>
               </div>
             </div>
@@ -831,7 +879,7 @@ export default function GamePage() {
         {phase === "leaderboard" && (
           <div className="flex-1 flex flex-col max-w-md mx-auto w-full py-4">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-amber-400">Leaderboard</h2>
+              <h2 className="text-xl font-semibold text-amber-400">Annals of Anachron</h2>
               <Button 
                 variant="ghost" 
                 size="sm"
