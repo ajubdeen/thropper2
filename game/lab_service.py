@@ -208,6 +208,8 @@ def _parse_choices_from_response(response: str) -> List[Dict]:
     """Extract [A]/[B]/[C] choices from AI response. Replicates GameAPI._parse_choices logic."""
     clean = strip_anchor_tags(response)
     clean = strip_event_tags(clean)
+    # Strip markdown bold markers so **[A]** still matches
+    clean = re.sub(r'\*\*', '', clean)
 
     choices = []
     for line in clean.split('\n'):
@@ -474,6 +476,7 @@ def get_available_models() -> List[Dict[str, str]]:
     """Return list of available Claude models."""
     return [
         {'id': 'claude-opus-4-6', 'label': 'Opus 4.6', 'description': 'Most capable, slowest'},
+        {'id': 'claude-sonnet-4-6', 'label': 'Sonnet 4.6', 'description': 'Latest Sonnet, fast and capable'},
         {'id': 'claude-sonnet-4-5-20250929', 'label': 'Sonnet 4.5', 'description': 'Fast, excellent quality'},
         {'id': 'claude-haiku-4-5-20251001', 'label': 'Haiku 4.5', 'description': 'Fastest, good quality'},
     ]

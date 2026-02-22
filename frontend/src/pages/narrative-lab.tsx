@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useAuth } from "@/hooks/use-auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { FlaskConical, ArrowLeft } from "lucide-react";
@@ -12,37 +11,14 @@ import QuickPlayPanel from "@/components/lab/quick-play-panel";
 import QuickPlayHistory from "@/components/lab/quickplay-history";
 import { ImageLab } from "@/components/lab/image-lab";
 
-const ADMIN_EMAIL = "aju.bdeen@gmail.com";
 
 export default function NarrativeLab() {
-  const { user, isLoading } = useAuth();
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(
     null
   );
   const [comparisonGroup, setComparisonGroup] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("snapshots");
   const [historySubTab, setHistorySubTab] = useState<"quickplay" | "generations">("quickplay");
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-muted-foreground">
-        Loading...
-      </div>
-    );
-  }
-
-  if (!user || user.email !== ADMIN_EMAIL) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-muted-foreground">Access restricted.</p>
-        <a href="/">
-          <Button variant="outline">
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back to game
-          </Button>
-        </a>
-      </div>
-    );
-  }
 
   const handleBranchSnapshot = (snapshotId: string) => {
     setSelectedSnapshotId(snapshotId);

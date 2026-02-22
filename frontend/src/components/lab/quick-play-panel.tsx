@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Play, Loader2, GitBranch, ChevronDown, Settings2 } from "lucide-react";
+import { Play, Loader2, GitBranch, ChevronDown, Settings2, RotateCcw } from "lucide-react";
 import {
   useQuickPlayStart,
   useQuickPlayEnterEra,
@@ -38,6 +38,48 @@ interface GameMessage {
 
 interface Props {
   onBranchSnapshot?: (snapshotId: string) => void;
+}
+
+const STORAGE_KEY = "anachron-quickplay-session";
+
+interface PersistedState {
+  sessionId: string | null;
+  messages: GameMessage[];
+  choices: Array<{ id: string; text: string }>;
+  lastSnapshotId: string | null;
+  waitingFor: string | null;
+  gameState: Record<string, any> | null;
+  playerName: string;
+  region: string;
+  systemVariantId: string;
+  turnVariantId: string;
+  arrivalVariantId: string;
+  windowVariantId: string;
+  model: string;
+  temperature: number;
+  diceRoll: number;
+}
+
+function loadPersistedState(): Partial<PersistedState> {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function savePersistedState(state: PersistedState) {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function clearPersistedState() {
+  sessionStorage.removeItem(STORAGE_KEY);
 }
 
 const DICE_LABELS: Record<number, string> = {
@@ -61,25 +103,27 @@ function getDiceLabel(value: number): string {
 }
 
 export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
+  const persisted = useRef(loadPersistedState()).current;
+
   // Session state
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<GameMessage[]>([]);
-  const [choices, setChoices] = useState<Array<{ id: string; text: string }>>([]);
-  const [lastSnapshotId, setLastSnapshotId] = useState<string | null>(null);
-  const [waitingFor, setWaitingFor] = useState<string | null>(null);
-  const [gameState, setGameState] = useState<Record<string, any> | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(persisted.sessionId ?? null);
+  const [messages, setMessages] = useState<GameMessage[]>(persisted.messages ?? []);
+  const [choices, setChoices] = useState<Array<{ id: string; text: string }>>(persisted.choices ?? []);
+  const [lastSnapshotId, setLastSnapshotId] = useState<string | null>(persisted.lastSnapshotId ?? null);
+  const [waitingFor, setWaitingFor] = useState<string | null>(persisted.waitingFor ?? null);
+  const [gameState, setGameState] = useState<Record<string, any> | null>(persisted.gameState ?? null);
 
   // Config state
-  const [playerName, setPlayerName] = useState("Lab Tester");
-  const [region, setRegion] = useState("european");
-  const [systemVariantId, setSystemVariantId] = useState("");
-  const [turnVariantId, setTurnVariantId] = useState("");
-  const [arrivalVariantId, setArrivalVariantId] = useState("");
-  const [windowVariantId, setWindowVariantId] = useState("");
-  const [model, setModel] = useState("");
-  const [temperature, setTemperature] = useState(1.0);
-  const [diceRoll, setDiceRoll] = useState(0); // 0 = random
-  const [configOpen, setConfigOpen] = useState(true);
+  const [playerName, setPlayerName] = useState(persisted.playerName ?? "Lab Tester");
+  const [region, setRegion] = useState(persisted.region ?? "european");
+  const [systemVariantId, setSystemVariantId] = useState(persisted.systemVariantId ?? "");
+  const [turnVariantId, setTurnVariantId] = useState(persisted.turnVariantId ?? "");
+  const [arrivalVariantId, setArrivalVariantId] = useState(persisted.arrivalVariantId ?? "");
+  const [windowVariantId, setWindowVariantId] = useState(persisted.windowVariantId ?? "");
+  const [model, setModel] = useState(persisted.model ?? "");
+  const [temperature, setTemperature] = useState(persisted.temperature ?? 1.0);
+  const [diceRoll, setDiceRoll] = useState(persisted.diceRoll ?? 0);
+  const [configOpen, setConfigOpen] = useState(!persisted.sessionId);
 
   // Data hooks
   const { data: systemVariants } = usePromptVariants("system");
@@ -101,6 +145,31 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
     enterEraMutation.isPending ||
     chooseMutation.isPending ||
     continueMutation.isPending;
+
+  // Persist state on every change
+  useEffect(() => {
+    savePersistedState({
+      sessionId,
+      messages,
+      choices,
+      lastSnapshotId,
+      waitingFor,
+      gameState,
+      playerName,
+      region,
+      systemVariantId,
+      turnVariantId,
+      arrivalVariantId,
+      windowVariantId,
+      model,
+      temperature,
+      diceRoll,
+    });
+  }, [
+    sessionId, messages, choices, lastSnapshotId, waitingFor, gameState,
+    playerName, region, systemVariantId, turnVariantId, arrivalVariantId,
+    windowVariantId, model, temperature, diceRoll,
+  ]);
 
   const getTurnParams = useCallback((): QuickPlayTurnParams => {
     const params: QuickPlayTurnParams = {};
@@ -188,6 +257,18 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
       { sessionId, ...getTurnParams() },
       { onSuccess: (result) => processResult(result) }
     );
+  };
+
+  const handleNewSession = () => {
+    if (!confirm("Clear the current session and start a new one?")) return;
+    setSessionId(null);
+    setMessages([]);
+    setChoices([]);
+    setLastSnapshotId(null);
+    setWaitingFor(null);
+    setGameState(null);
+    setConfigOpen(true);
+    clearPersistedState();
   };
 
   // Shared prompt variant selector
@@ -412,6 +493,14 @@ export default function QuickPlayPanel({ onBranchSnapshot }: Props) {
                   <GitBranch className="h-3 w-3 mr-1" /> Branch Here
                 </Button>
               )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNewSession}
+                className="border-orange-500/50 text-orange-600"
+              >
+                <RotateCcw className="h-3 w-3 mr-1" /> New Session
+              </Button>
             </div>
           </CardContent>
         </Card>

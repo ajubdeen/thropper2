@@ -9,9 +9,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, ImageIcon } from "lucide-react";
-import { useGenerateImage, useNarratives, useExtractScene } from "@/hooks/use-lab";
+import { useGenerateImage, useNarratives, usePushImagePrompt } from "@/hooks/use-lab";
 
-// Default prompt — matches the current STYLE_BLOCK from portrait_generator.py
+// Default prompt — the editable STYLE_BLOCK template (no narrative-specific content)
 const DEFAULT_PROMPT = `STYLE:
 Painted 1980s epic adventure movie poster.
 Thick visible oil brushstrokes.
@@ -51,9 +51,7 @@ Expressions are calm and settled — the look of people who have earned their pl
 Mouths closed or nearly closed. No broad grins, no open smiles.
 Some characters may have a smile just beginning to form at the corners of the mouth — the feeling of quiet joy held in check.
 Central figure: strong, composed, serene confidence with warmth in the eyes. Maximum age 50. Not elderly. Not frail. Strong and vital with distinguished silver-touched hair.
-The overall feeling is a family portrait of quiet triumph — people who have nothing left to prove.
-
-NO text, NO titles, NO logos, NO borders, NO watermarks.`;
+The overall feeling is a family portrait of quiet triumph — people who have nothing left to prove.`;
 
 const MODELS = [
   { value: "gpt-image-1.5", label: "gpt-image-1.5" },
@@ -62,8 +60,8 @@ const MODELS = [
 ];
 
 const QUALITIES = [
-  { value: "medium", label: "medium" },
   { value: "high", label: "high" },
+  { value: "medium", label: "medium" },
   { value: "low", label: "low" },
 ];
 
@@ -76,9 +74,9 @@ const SIZES = [
 export function ImageLab() {
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [model, setModel] = useState("gpt-image-1.5");
-  const [quality, setQuality] = useState("medium");
+  const [quality, setQuality] = useState("high");
   const [size, setSize] = useState("1536x1024");
-  const [selectedNarrative, setSelectedNarrative] = useState("");
+  const [selectedNarrative, setSelectedNarrative] = useState("__none__");
   const [result, setResult] = useState<{
     image_path: string;
     generatedAt: string;
@@ -89,27 +87,18 @@ export function ImageLab() {
 
   const { data: narrativesData } = useNarratives();
   const narratives = narrativesData?.narratives ?? [];
-
   const generate = useGenerateImage();
-  const extractScene = useExtractScene();
+  const pushPrompt = usePushImagePrompt();
+  const [pushSuccess, setPushSuccess] = useState<number | null>(null);
 
-  function handleNarrativeSelect(entry_id: string) {
-    setSelectedNarrative(entry_id);
-    if (!entry_id) {
-      setPrompt(DEFAULT_PROMPT);
-      return;
-    }
-    extractScene.mutate(
-      { entry_id },
-      {
-        onSuccess: (data) => setPrompt(data.prompt_text),
-      }
-    );
+  function handleNarrativeSelect(value: string) {
+    setSelectedNarrative(value);
   }
 
   function handleGenerate() {
+    const entry_id = selectedNarrative === "__none__" ? undefined : selectedNarrative;
     generate.mutate(
-      { prompt, model, quality, size },
+      { prompt, model, quality, size, entry_id },
       {
         onSuccess: (data) => {
           setResult({
@@ -132,27 +121,21 @@ export function ImageLab() {
         {/* Narrative dropdown */}
         <Select value={selectedNarrative} onValueChange={handleNarrativeSelect}>
           <SelectTrigger className="w-full h-8 text-xs">
-            <SelectValue placeholder="— Select a narrative —" />
+            <SelectValue />
           </SelectTrigger>
           <SelectContent className="max-h-72">
-            <SelectItem value="" className="text-xs text-muted-foreground">
-              — Select a narrative —
+            <SelectItem value="__none__" className="text-xs text-muted-foreground">
+              — No narrative —
             </SelectItem>
             {narratives.map((n) => (
               <SelectItem key={n.entry_id} value={n.entry_id} className="text-xs">
-                <span title={n.player_narrative || undefined}>
-                  {n.character_name} — {n.final_era}
-                  {n.final_era_year ? ` (${n.final_era_year})` : ""}
-                  {"  "}[{n.total_score}]
+                <span title={n.blurb || n.player_narrative || undefined}>
+                  {n.player_name} — {n.final_era} [{n.total_score}]
                 </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-
-        {extractScene.isError && (
-          <p className="text-xs text-destructive">{extractScene.error.message}</p>
-        )}
 
         {/* Parameter dropdowns + Generate button */}
         <div className="flex flex-wrap gap-2 items-center">
@@ -198,7 +181,7 @@ export function ImageLab() {
           <Button
             size="sm"
             onClick={handleGenerate}
-            disabled={generate.isPending || extractScene.isPending || !prompt.trim()}
+            disabled={generate.isPending || !prompt.trim()}
             className="ml-auto h-8"
           >
             {generate.isPending ? (
@@ -212,27 +195,54 @@ export function ImageLab() {
           </Button>
         </div>
 
-        {/* Prompt textarea with extraction overlay */}
-        <div className="relative flex-1">
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            className={`h-full min-h-[calc(100vh-280px)] resize-none font-mono text-xs leading-relaxed ${
-              extractScene.isPending ? "opacity-40 pointer-events-none" : ""
-            }`}
-            placeholder="Enter image generation prompt…"
-          />
-          {extractScene.isPending && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-sm text-muted-foreground">Extracting scene…</span>
-            </div>
-          )}
-        </div>
+        {/* Prompt template textarea */}
+        <Textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          className="flex-1 min-h-[calc(100vh-280px)] resize-none font-mono text-xs leading-relaxed"
+          placeholder="Enter image generation prompt template…"
+        />
 
         {generate.isError && (
           <p className="text-xs text-destructive">{generate.error.message}</p>
         )}
+
+        {/* Push to Production */}
+        <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={pushPrompt.isPending || !prompt.trim()}
+            onClick={() => {
+              setPushSuccess(null);
+              pushPrompt.mutate(
+                { template: prompt },
+                {
+                  onSuccess: (data) => setPushSuccess(data.version),
+                  onError: () => setPushSuccess(null),
+                }
+              );
+            }}
+          >
+            {pushPrompt.isPending ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                Pushing…
+              </>
+            ) : (
+              "Push to Production"
+            )}
+          </Button>
+          {pushSuccess !== null && (
+            <span className="text-xs text-muted-foreground">
+              Pushed as v{pushSuccess}
+            </span>
+          )}
+          {pushPrompt.isError && (
+            <span className="text-xs text-destructive">{pushPrompt.error.message}</span>
+          )}
+        </div>
       </div>
 
       {/* Right pane — Image Display */}
@@ -241,7 +251,9 @@ export function ImageLab() {
           <div className="flex flex-col items-center justify-center h-full min-h-[400px] rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Generating image…</p>
-            <p className="text-xs text-muted-foreground/60">This takes 15–30 seconds</p>
+            <p className="text-xs text-muted-foreground/60">
+              {selectedNarrative !== "__none__" ? "Extracting scene + generating (20–40s)…" : "This takes 15–30 seconds"}
+            </p>
           </div>
         ) : result ? (
           <>

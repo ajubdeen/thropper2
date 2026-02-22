@@ -424,6 +424,215 @@ def get_version_history(user_id: str, prompt_type: str) -> List[Dict[str, Any]]:
             return [dict(r) for r in cur.fetchall()]
 
 
+# ==================== Quick Play Sessions ====================
+
+def save_quickplay_session(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a quick play session record."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                INSERT INTO lab_quickplay_sessions
+                (id, user_id, player_name, region,
+                 system_prompt_variant_id, system_prompt_variant_name,
+                 turn_prompt_variant_id, turn_prompt_variant_name,
+                 arrival_prompt_variant_id, arrival_prompt_variant_name,
+                 window_prompt_variant_id, window_prompt_variant_name,
+                 model, temperature, dice_roll)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+            """, (
+                data['id'], data['user_id'], data.get('player_name'),
+                data.get('region'),
+                data.get('system_prompt_variant_id'), data.get('system_prompt_variant_name', 'Baseline'),
+                data.get('turn_prompt_variant_id'), data.get('turn_prompt_variant_name', 'Baseline'),
+                data.get('arrival_prompt_variant_id'), data.get('arrival_prompt_variant_name', 'Baseline'),
+                data.get('window_prompt_variant_id'), data.get('window_prompt_variant_name', 'Baseline'),
+                data.get('model'), data.get('temperature'), data.get('dice_roll'),
+            ))
+            return dict(cur.fetchone())
+
+
+def list_quickplay_sessions(user_id: str, limit: int = 20, offset: int = 0) -> Tuple[List[Dict], int]:
+    """List quick play sessions for a user."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT COUNT(*) FROM lab_quickplay_sessions WHERE user_id = %s", (user_id,))
+            total = cur.fetchone()['count']
+
+            cur.execute("""
+                SELECT s.*, COUNT(t.id) as turn_count
+                FROM lab_quickplay_sessions s
+                LEFT JOIN lab_quickplay_turns t ON t.session_id = s.id
+                WHERE s.user_id = %s
+                GROUP BY s.id
+                ORDER BY s.created_at DESC
+                LIMIT %s OFFSET %s
+            """, (user_id, limit, offset))
+            rows = [dict(r) for r in cur.fetchall()]
+            return rows, total
+
+
+def delete_quickplay_session(session_id: str) -> bool:
+    """Delete a quick play session (cascades to turns)."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM lab_quickplay_sessions WHERE id = %s", (session_id,))
+            return cur.rowcount > 0
+
+
+# ==================== Quick Play Turns ====================
+
+def save_quickplay_turn(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a quick play turn record with full metadata."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                INSERT INTO lab_quickplay_turns
+                (session_id, user_id, turn_number, turn_type,
+                 era_id, era_name, era_year, era_location, region,
+                 system_prompt_variant_id, system_prompt_variant_name,
+                 turn_prompt_variant_id, turn_prompt_variant_name,
+                 arrival_prompt_variant_id, arrival_prompt_variant_name,
+                 window_prompt_variant_id, window_prompt_variant_name,
+                 model, temperature, dice_roll,
+                 choice_made, narrative_text, choices, messages, snapshot_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+            """, (
+                data['session_id'], data['user_id'], data['turn_number'], data['turn_type'],
+                data.get('era_id'), data.get('era_name'), data.get('era_year'), data.get('era_location'),
+                data.get('region'),
+                data.get('system_prompt_variant_id'), data.get('system_prompt_variant_name', 'Baseline'),
+                data.get('turn_prompt_variant_id'), data.get('turn_prompt_variant_name', 'Baseline'),
+                data.get('arrival_prompt_variant_id'), data.get('arrival_prompt_variant_name', 'Baseline'),
+                data.get('window_prompt_variant_id'), data.get('window_prompt_variant_name', 'Baseline'),
+                data.get('model'), data.get('temperature'), data.get('dice_roll'),
+                data.get('choice_made'), data.get('narrative_text'),
+                Json(data.get('choices', [])),
+                Json(data.get('messages', [])), data.get('snapshot_id'),
+            ))
+            return dict(cur.fetchone())
+
+
+def list_quickplay_turns(user_id: str, session_id: str = None, era_id: str = None,
+                         model: str = None, region: str = None,
+                         system_prompt_variant_id: str = None,
+                         turn_prompt_variant_id: str = None,
+                         arrival_prompt_variant_id: str = None,
+                         window_prompt_variant_id: str = None,
+                         date_from: str = None, date_to: str = None,
+                         limit: int = 20, offset: int = 0) -> Tuple[List[Dict], int]:
+    """List quick play turns with filtering. Returns (rows, total_count)."""
+    conditions = ["user_id = %s"]
+    params: list = [user_id]
+
+    if session_id:
+        conditions.append("session_id = %s")
+        params.append(session_id)
+    if era_id:
+        conditions.append("era_id = %s")
+        params.append(era_id)
+    if model:
+        conditions.append("model = %s")
+        params.append(model)
+    if region:
+        conditions.append("region = %s")
+        params.append(region)
+    if system_prompt_variant_id:
+        conditions.append("system_prompt_variant_id = %s")
+        params.append(system_prompt_variant_id)
+    if turn_prompt_variant_id:
+        conditions.append("turn_prompt_variant_id = %s")
+        params.append(turn_prompt_variant_id)
+    if arrival_prompt_variant_id:
+        conditions.append("arrival_prompt_variant_id = %s")
+        params.append(arrival_prompt_variant_id)
+    if window_prompt_variant_id:
+        conditions.append("window_prompt_variant_id = %s")
+        params.append(window_prompt_variant_id)
+    if date_from:
+        conditions.append("created_at >= %s")
+        params.append(date_from)
+    if date_to:
+        conditions.append("created_at <= %s")
+        params.append(date_to)
+
+    where = " AND ".join(conditions)
+
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(f"SELECT COUNT(*) FROM lab_quickplay_turns WHERE {where}", params)
+            total = cur.fetchone()['count']
+
+            cur.execute(
+                f"""SELECT id, session_id, user_id, turn_number, turn_type,
+                    era_id, era_name, era_year, era_location, region,
+                    system_prompt_variant_id, system_prompt_variant_name,
+                    turn_prompt_variant_id, turn_prompt_variant_name,
+                    arrival_prompt_variant_id, arrival_prompt_variant_name,
+                    window_prompt_variant_id, window_prompt_variant_name,
+                    model, temperature, dice_roll,
+                    choice_made, narrative_text, choices, snapshot_id, created_at
+                    FROM lab_quickplay_turns WHERE {where}
+                    ORDER BY created_at DESC LIMIT %s OFFSET %s""",
+                params + [limit, offset]
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+            return rows, total
+
+
+def get_quickplay_turn(turn_id: str) -> Optional[Dict[str, Any]]:
+    """Get a single quick play turn with full details including messages."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM lab_quickplay_turns WHERE id = %s", (turn_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def get_quickplay_filter_options(user_id: str) -> Dict[str, Any]:
+    """Get available filter values for quick play history."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT DISTINCT model FROM lab_quickplay_turns
+                WHERE user_id = %s AND model IS NOT NULL ORDER BY model
+            """, (user_id,))
+            models = [r['model'] for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT DISTINCT era_id, era_name FROM lab_quickplay_turns
+                WHERE user_id = %s AND era_id IS NOT NULL ORDER BY era_name
+            """, (user_id,))
+            eras = [dict(r) for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT DISTINCT region FROM lab_quickplay_turns
+                WHERE user_id = %s AND region IS NOT NULL ORDER BY region
+            """, (user_id,))
+            regions = [r['region'] for r in cur.fetchall()]
+
+            # Get distinct prompt variants used
+            variants = {}
+            for prompt_type in ('system', 'turn', 'arrival', 'window'):
+                id_col = f"{prompt_type}_prompt_variant_id"
+                name_col = f"{prompt_type}_prompt_variant_name"
+                cur.execute(f"""
+                    SELECT DISTINCT {id_col} as id, {name_col} as name
+                    FROM lab_quickplay_turns
+                    WHERE user_id = %s AND {name_col} IS NOT NULL
+                    ORDER BY {name_col}
+                """, (user_id,))
+                variants[prompt_type] = [dict(r) for r in cur.fetchall()]
+
+            return {
+                'models': models,
+                'eras': eras,
+                'regions': regions,
+                'variants': variants,
+            }
+
+
 def get_baseline_variant(user_id: str, prompt_type: str) -> Optional[Dict[str, Any]]:
     """Get the baseline (is_default=TRUE) variant for a prompt type."""
     with get_db() as conn:

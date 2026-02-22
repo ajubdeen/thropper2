@@ -5,7 +5,7 @@ Generates cinematic ensemble portrait images at the end of a game when a player
 chooses to stay. Uses a two-stage approach:
   1. Claude extracts structured visual scene data from the narrative
   2. Scene data is assembled into a detailed image prompt
-  3. OpenAI gpt-image-1 generates the portrait image
+  3. OpenAI gpt-image-1.5 generates the portrait image
 
 The resulting image is saved to static/portraits/ and the path stored in aoa_entries.
 """
@@ -168,20 +168,17 @@ def extract_scene(aoa_data: dict) -> Optional[dict]:
         return None
 
 
-def build_image_prompt(scene: dict) -> str:
+def build_scene_blocks(scene: dict) -> str:
     """
-    Stage 2: Assemble image prompt using three-section structure.
-    STYLE + LIGHTING + COMPOSITION (immutable) then DYNAMIC ERA + CHARACTERS (variable).
+    Build only the dynamic scene blocks (ERA, ROOM DETAILS, CENTRAL FIGURE, etc.).
+    Does NOT include STYLE_BLOCK or IMAGE_PROMPT_FOOTER — those come from the user's template.
+    Used by the Image Lab to append scene data to the user's editable prompt template.
     """
-    parts = [STYLE_BLOCK]
+    parts = []
 
-    # --- DYNAMIC ERA + CHARACTER BLOCK (variable per game) ---
-
-    # Era details — short declarative block
     setting = scene.get('setting', {})
     parts.append(f"\nERA:\n{setting.get('city', 'Historic city')}, {setting.get('era_decade', '')}.")
 
-    # Room — minimal (it's mostly in shadow anyway)
     room_bits = []
     if setting.get('architecture'):
         room_bits.append(setting['architecture'])
@@ -190,13 +187,11 @@ def build_image_prompt(scene: dict) -> str:
     if room_bits:
         parts.append(f"\nROOM DETAILS:\n{'. '.join(room_bits)}.")
 
-    # Central figure — dense, declarative
     cf = scene.get('central_figure', {})
     parts.append(f"\nCENTRAL FIGURE:\n{cf.get('name', 'The protagonist')}, "
                  f"{cf.get('age_appearance', 'weathered figure')}. "
                  f"{cf.get('clothing', 'Era-appropriate clothing')}.")
 
-    # Supporting characters — 1 dense line each, max 5
     characters = scene.get('characters', [])
     if characters:
         char_lines = []
@@ -206,15 +201,38 @@ def build_image_prompt(scene: dict) -> str:
                               f"{char.get('clothing', '')}.")
         parts.append(f"\nSUPPORTING CHARACTERS:\n" + "\n".join(char_lines))
 
-    # Props — 1 line
     objects = scene.get('objects', [])
     if objects:
         obj_strs = [o if isinstance(o, str) else o.get('description', str(o)) for o in objects[:3]]
         parts.append(f"\nPROPS:\n{'; '.join(obj_strs)}.")
 
-    parts.append(f"\n{IMAGE_PROMPT_FOOTER}")
-
     return '\n'.join(parts)
+
+
+def get_live_style_block() -> str:
+    """Return the live image style prompt from DB, falling back to the hardcoded STYLE_BLOCK."""
+    try:
+        import psycopg2.extras
+        from db import get_db
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT template FROM lab_prompt_variants WHERE prompt_type = 'image_style' AND is_live = true ORDER BY version_number DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+                if row:
+                    return row['template']
+    except Exception as e:
+        logger.warning(f"Could not load live image prompt from DB, using default: {e}")
+    return STYLE_BLOCK
+
+
+def build_image_prompt(scene: dict) -> str:
+    """
+    Stage 2: Assemble full image prompt = style block + scene blocks + footer.
+    Uses the live DB style block if one has been pushed to production, otherwise STYLE_BLOCK.
+    """
+    return get_live_style_block() + build_scene_blocks(scene) + f"\n\n{IMAGE_PROMPT_FOOTER}"
 
 
 def _save_image_b64(b64_data: str, entry_id: str) -> Optional[str]:
@@ -286,18 +304,18 @@ def generate_portrait(entry_id: str) -> Optional[str]:
     prompt_text = build_image_prompt(scene)
     logger.info(f"Image prompt built ({len(prompt_text)} chars)")
 
-    # 4. Generate image via OpenAI gpt-image-1
+    # 4. Generate image via OpenAI gpt-image-1.5
     try:
         client = openai.OpenAI()
         response = client.images.generate(
-            model="gpt-image-1",
+            model="gpt-image-1.5",
             prompt=prompt_text,
             size="1536x1024",
             quality="high",
             n=1,
         )
         b64_data = response.data[0].b64_json
-        logger.info(f"gpt-image-1 image generated ({len(b64_data)} base64 chars)")
+        logger.info(f"gpt-image-1.5 image generated ({len(b64_data)} base64 chars)")
     except Exception as e:
         logger.error(f"OpenAI image generation failed: {e}")
         # Still save the prompt for debugging
@@ -364,14 +382,14 @@ def generate_portrait_from_data(aoa_data: dict, image_id: str) -> Optional[str]:
     try:
         client = openai.OpenAI()
         response = client.images.generate(
-            model="gpt-image-1",
+            model="gpt-image-1.5",
             prompt=prompt_text,
             size="1536x1024",
             quality="high",
             n=1,
         )
         b64_data = response.data[0].b64_json
-        logger.info(f"gpt-image-1 image generated ({len(b64_data)} base64 chars)")
+        logger.info(f"gpt-image-1.5 image generated ({len(b64_data)} base64 chars)")
     except Exception as e:
         logger.error(f"OpenAI image generation failed: {e}")
         return None

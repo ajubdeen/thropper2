@@ -120,33 +120,173 @@ def _unified_diff(old_text: str, new_text: str, old_label: str = "old", new_labe
 
 
 def _summarize_changes(old_text: str, new_text: str) -> str:
-    """Generate a one-line summary of changes between two texts."""
+    """Generate a descriptive summary of changes between two texts.
+
+    Identifies which sections were added/modified/removed and extracts
+    key phrases from changed content to produce a human-readable description.
+    """
+    import re
+
     old_lines = old_text.splitlines()
     new_lines = new_text.splitlines()
 
     matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
-    added = 0
-    removed = 0
-    changed = 0
+    added_count = 0
+    removed_count = 0
+    changed_count = 0
+
+    # Collect actual changed/added/removed lines for analysis
+    added_lines = []
+    removed_lines = []
+    modified_regions = []  # (old_lines_slice, new_lines_slice)
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'insert':
-            added += (j2 - j1)
+            added_count += (j2 - j1)
+            added_lines.extend(new_lines[j1:j2])
         elif tag == 'delete':
-            removed += (i2 - i1)
+            removed_count += (i2 - i1)
+            removed_lines.extend(old_lines[i1:i2])
         elif tag == 'replace':
-            changed += max(i2 - i1, j2 - j1)
+            changed_count += max(i2 - i1, j2 - j1)
+            modified_regions.append((old_lines[i1:i2], new_lines[j1:j2]))
+            added_lines.extend(new_lines[j1:j2])
 
-    similarity = round(matcher.ratio() * 100)
-
-    parts = []
-    if added:
-        parts.append(f"+{added} lines")
-    if removed:
-        parts.append(f"-{removed} lines")
-    if changed:
-        parts.append(f"~{changed} lines changed")
-    if not parts:
+    if not added_count and not removed_count and not changed_count:
         return "No changes"
 
-    return f"{', '.join(parts)} ({similarity}% similar)"
+    # Extract section headers from changed content
+    # Matches patterns like "10. NPC DEPTH", "ROMANTIC CONNECTIONS (SUBTLE):",
+    # "NPC CONTINUITY (IMPORTANT):", "SMARTPHONE AS SECRET WEAPON", etc.
+    section_pattern = re.compile(
+        r'^\s*(?:\d+[\.\)]\s+)?([A-Z][A-Z\s\-/]+(?:\([^)]*\))?)\s*[:.]?\s*$'
+    )
+    keyword_pattern = re.compile(
+        r'^\s*(?:\d+[\.\)]\s+)?([A-Z][A-Z\s\-/]{3,}(?:\([^)]*\))?)'
+    )
+
+    # Find section headers in added/changed content
+    new_sections = []
+    for line in added_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        m = section_pattern.match(line)
+        if m:
+            new_sections.append(m.group(1).strip())
+        elif not new_sections:
+            # Also check for keyword-style headers
+            m2 = keyword_pattern.match(line)
+            if m2 and len(m2.group(1).strip()) > 5:
+                new_sections.append(m2.group(1).strip())
+
+    # Find section headers in removed content
+    removed_sections = []
+    for line in removed_lines:
+        m = section_pattern.match(line)
+        if m:
+            removed_sections.append(m.group(1).strip())
+
+    # Find which existing sections were modified (look at context around changes)
+    modified_sections = []
+    for old_chunk, new_chunk in modified_regions:
+        # Look for section headers near the modified region
+        for line in old_chunk + new_chunk:
+            m = keyword_pattern.match(line)
+            if m and len(m.group(1).strip()) > 5:
+                sec = m.group(1).strip()
+                if sec not in new_sections and sec not in modified_sections:
+                    modified_sections.append(sec)
+
+    # Extract key themes from added content (non-header lines)
+    key_phrases = _extract_key_phrases(added_lines)
+
+    # Build descriptive summary
+    parts = []
+
+    if new_sections:
+        # Deduplicate and limit
+        unique_sections = list(dict.fromkeys(new_sections))[:3]
+        section_names = [s.title() for s in unique_sections]
+        parts.append(f"Added: {', '.join(section_names)}")
+
+    if removed_sections:
+        unique_removed = list(dict.fromkeys(removed_sections))[:3]
+        section_names = [s.title() for s in unique_removed]
+        parts.append(f"Removed: {', '.join(section_names)}")
+
+    if modified_sections and not new_sections:
+        unique_modified = list(dict.fromkeys(modified_sections))[:3]
+        section_names = [s.title() for s in unique_modified]
+        parts.append(f"Modified: {', '.join(section_names)}")
+
+    # Add key themes if we found them and don't already have section info
+    if key_phrases and not parts:
+        parts.append(f"Changes related to: {', '.join(key_phrases[:3])}")
+    elif key_phrases and len(parts) == 1:
+        parts.append(f"Focus: {', '.join(key_phrases[:2])}")
+
+    # Add stats as secondary info
+    stats = []
+    if added_count:
+        stats.append(f"+{added_count}")
+    if removed_count:
+        stats.append(f"-{removed_count}")
+    if changed_count:
+        stats.append(f"~{changed_count}")
+    similarity = round(matcher.ratio() * 100)
+
+    if parts:
+        return f"{'. '.join(parts)}. ({', '.join(stats)} lines, {similarity}% similar)"
+    else:
+        return f"{', '.join(stats)} lines changed ({similarity}% similar)"
+
+
+def _extract_key_phrases(lines: list) -> list:
+    """Extract key thematic phrases from added/changed lines."""
+    import re
+
+    # Common meaningful keywords in game prompts
+    theme_keywords = {
+        'npc': 'NPC depth',
+        'romantic': 'romantic connections',
+        'romance': 'romantic connections',
+        'mate': 'romantic connections',
+        'relationship': 'relationships',
+        'continuity': 'continuity',
+        'fulfillment': 'fulfillment tracking',
+        'belonging': 'belonging',
+        'legacy': 'legacy',
+        'freedom': 'freedom',
+        'window': 'time machine window',
+        'dice': 'luck/dice mechanics',
+        'luck': 'luck/dice mechanics',
+        'historical': 'historical accuracy',
+        'choice': 'choice design',
+        'item': 'item handling',
+        'smartphone': 'smartphone usage',
+        'phone': 'smartphone usage',
+        'wikipedia': 'smartphone usage',
+        'antibiotics': 'item usage',
+        'narrative': 'narrative style',
+        'voice': 'narrative voice',
+        'tone': 'tone/mood',
+        'pacing': 'pacing',
+        'engagement': 'engagement',
+        'immersive': 'immersion',
+        'emotion': 'emotional depth',
+        'setback': 'setbacks/challenges',
+        'obstacle': 'setbacks/challenges',
+        'survival': 'survival mechanics',
+        'era': 'era handling',
+        'time travel': 'time travel mechanics',
+    }
+
+    found = {}
+    text_block = ' '.join(line.strip().lower() for line in lines if line.strip())
+
+    for keyword, theme in theme_keywords.items():
+        if keyword in text_block and theme not in found.values():
+            found[keyword] = theme
+
+    return list(dict.fromkeys(found.values()))[:4]

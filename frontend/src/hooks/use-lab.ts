@@ -656,3 +656,12 @@ export function useGenerateImage() {
   });
 }
 
+export function usePushImagePrompt() {
+  return useMutation<{ success: boolean; version: number }, Error, { template: string }>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", "/api/lab/push-image-prompt", data);
+      return res.json();
+    },
+  });
+}
+

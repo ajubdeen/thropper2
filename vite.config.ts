@@ -20,6 +20,9 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:5000",
       "/portraits": "http://localhost:5000",
+      "/login": "http://localhost:5000",
+      "/auth": "http://localhost:5000",
+      "/logout": "http://localhost:5000",
       "/socket.io": {
         target: "http://localhost:5000",
         ws: true,

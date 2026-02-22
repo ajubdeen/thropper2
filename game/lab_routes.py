@@ -21,9 +21,14 @@ ADMIN_EMAIL = 'aju.bdeen@gmail.com'
 
 
 def require_admin(f):
-    """Decorator: require admin email in session."""
+    """Decorator: require admin email in session.
+    In dev (no GOOGLE_CLIENT_ID), skips auth entirely — lab is local-only anyway.
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
+        import os
+        if not os.environ.get('GOOGLE_CLIENT_ID'):
+            return f(*args, **kwargs)  # Dev mode: no auth required
         if session.get('email') != ADMIN_EMAIL:
             return jsonify({'error': 'Forbidden'}), 403
         return f(*args, **kwargs)
@@ -880,23 +885,30 @@ def quickplay_turn_detail(turn_id):
 @lab.route('/narratives', methods=['GET'])
 @require_admin
 def list_narratives():
-    """List AoA entries for the Image Lab narrative dropdown."""
+    """List leaderboard entries (joined with AoA) for the Image Lab narrative dropdown."""
     try:
-        from db import storage
-        entries = storage.get_recent_aoa_entries(limit=200)
+        from db import get_db
+        from psycopg2.extras import RealDictCursor
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT l.player_name, l.final_era, l.total_score, l.blurb,
+                           a.entry_id, a.player_narrative
+                    FROM leaderboard_entries l
+                    JOIN aoa_entries a ON l.game_id = a.game_id
+                    ORDER BY l.total_score DESC
+                    LIMIT 200
+                """)
+                rows = cur.fetchall()
         result = []
-        for e in entries:
-            created = e.get('created_at', '')
+        for r in rows:
             result.append({
-                'entry_id': e['entry_id'],
-                'character_name': e.get('character_name', 'Unknown'),
-                'player_name': e.get('player_name'),
-                'final_era': e.get('final_era', ''),
-                'final_era_year': e.get('final_era_year'),
-                'ending_type': e.get('ending_type', ''),
-                'total_score': e.get('total_score', 0),
-                'created_at': created.isoformat() if hasattr(created, 'isoformat') else str(created),
-                'player_narrative': (e.get('player_narrative') or '')[:400],
+                'entry_id': r['entry_id'],
+                'player_name': r.get('player_name', 'Unknown'),
+                'final_era': r.get('final_era', ''),
+                'total_score': r.get('total_score', 0),
+                'blurb': r.get('blurb', ''),
+                'player_narrative': (r.get('player_narrative') or '')[:400],
             })
         return jsonify({'narratives': result})
     except Exception as e:
@@ -931,7 +943,10 @@ def extract_scene_route():
 @lab.route('/generate-image', methods=['POST'])
 @require_admin
 def generate_image():
-    """Generate an image directly from a prompt string. Used by the Image Lab tab."""
+    """Generate an image from a prompt template + optional narrative entry.
+    If entry_id is provided, scene is extracted and appended to the template
+    in the background — the user only sees/edits the template portion.
+    """
     data = request.get_json()
     prompt = (data.get('prompt') or '').strip()
     if not prompt:
@@ -940,6 +955,21 @@ def generate_image():
     model = data.get('model', 'gpt-image-1.5')
     quality = data.get('quality', 'medium')
     size = data.get('size', '1536x1024')
+    entry_id = (data.get('entry_id') or '').strip()
+
+    # If a narrative is selected, extract scene and append dynamic blocks to the template
+    if entry_id:
+        try:
+            from db import storage
+            from portrait_generator import extract_scene, build_scene_blocks, IMAGE_PROMPT_FOOTER
+            aoa_data = storage.get_aoa_entry(entry_id)
+            if aoa_data:
+                scene = extract_scene(aoa_data)
+                if scene:
+                    scene_blocks = build_scene_blocks(scene)
+                    prompt = f"{prompt}\n{scene_blocks}\n\n{IMAGE_PROMPT_FOOTER}"
+        except Exception as e:
+            logger.warning(f"Scene extraction failed, using raw prompt: {e}")
 
     try:
         from portrait_generator import generate_image_from_prompt
@@ -949,4 +979,42 @@ def generate_image():
         return jsonify({'image_path': path, 'prompt': prompt}), 201
     except Exception as e:
         logger.error(f"Image lab generation error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/push-image-prompt', methods=['POST'])
+@require_admin
+def push_image_prompt():
+    """Save the current image prompt template as the live production style block."""
+    data = request.get_json()
+    template = (data.get('template') or '').strip()
+    if not template:
+        return jsonify({'error': 'template is required'}), 400
+
+    try:
+        from db import get_db
+        import psycopg2.extras
+        user_id = session.get('user_id', 'dev')
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT COALESCE(MAX(version_number), 0) + 1 AS next_v FROM lab_prompt_variants WHERE prompt_type = 'image_style'"
+                )
+                version = cur.fetchone()['next_v']
+                # Unmark any existing live image_style variant
+                cur.execute(
+                    "UPDATE lab_prompt_variants SET is_live = false WHERE prompt_type = 'image_style' AND is_live = true"
+                )
+                cur.execute(
+                    """INSERT INTO lab_prompt_variants
+                       (user_id, name, prompt_type, template, is_live, version_number)
+                       VALUES (%s, %s, 'image_style', %s, true, %s)
+                       RETURNING id""",
+                    (user_id, f'image_style_v{version}', template, version)
+                )
+                new_id = cur.fetchone()['id']
+        logger.info(f"Image prompt pushed to production: v{version} ({new_id})")
+        return jsonify({'success': True, 'version': version, 'id': new_id})
+    except Exception as e:
+        logger.error(f"Push image prompt error: {e}")
         return jsonify({'error': str(e)}), 500
