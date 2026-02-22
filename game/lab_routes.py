@@ -1018,3 +1018,23 @@ def push_image_prompt():
     except Exception as e:
         logger.error(f"Push image prompt error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/regenerate-portrait', methods=['POST'])
+@require_admin
+def regenerate_portrait():
+    """Regenerate portrait for an AoA entry. Runs synchronously — expect 30-60s."""
+    data = request.get_json()
+    entry_id = (data.get('entry_id') or '').strip()
+    if not entry_id:
+        return jsonify({'error': 'entry_id is required'}), 400
+    try:
+        from portrait_generator import generate_portrait
+        path = generate_portrait(entry_id)
+        if not path:
+            return jsonify({'error': 'Portrait generation failed — check OPENAI_API_KEY'}), 503
+        logger.info(f"Portrait regenerated for {entry_id}: {path}")
+        return jsonify({'success': True, 'portrait_image_path': path})
+    except Exception as e:
+        logger.error(f"Regenerate portrait error: {e}")
+        return jsonify({'error': str(e)}), 500
