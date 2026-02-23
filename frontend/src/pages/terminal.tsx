@@ -971,7 +971,7 @@ export default function GamePage() {
             
             <Dialog open={!!storyModalEntry} onOpenChange={(open) => !open && setStoryModalEntry(null)}>
               <DialogContent className="bg-gray-900 border-gray-700 max-w-2xl p-0 overflow-hidden">
-                <ScrollArea className="max-h-[85vh]">
+                <div className="overflow-y-auto max-h-[85vh]">
                   <div className="p-6 space-y-4">
                     {storyModalEntry?.portrait_image_path && (
                       <div className="w-full rounded-lg overflow-hidden -mt-2">
@@ -1030,7 +1030,7 @@ export default function GamePage() {
                       />
                     </div>
                   </div>
-                </ScrollArea>
+                </div>
               </DialogContent>
             </Dialog>
           </div>
