@@ -970,76 +970,67 @@ export default function GamePage() {
             </ScrollArea>
             
             <Dialog open={!!storyModalEntry} onOpenChange={(open) => !open && setStoryModalEntry(null)}>
-              <DialogContent className="bg-gray-900 border-gray-700 max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
-                {storyModalEntry?.portrait_image_path && (
-                  <div className="w-full rounded-lg overflow-hidden -mt-2 mb-2 flex-shrink-0 max-h-44">
-                    <img
-                      src={storyModalEntry.portrait_image_path}
-                      alt="Journey portrait"
-                      className="w-full h-44 object-cover object-[center_25%]"
-                    />
-                  </div>
-                )}
-                <DialogHeader className="flex-shrink-0">
-                  <DialogTitle className="text-amber-400">
-                    {storyModalEntry?.player_name || 'Anonymous'} chose to stay in {storyModalEntry?.final_era}
-                  </DialogTitle>
-                </DialogHeader>
-
-                <div className="space-y-4 pb-2 flex-shrink-0">
-                  <div className="text-gray-300">
-                    <span className="text-amber-400 font-bold text-lg">{storyModalEntry?.total} pts</span>
-                    <span className="text-gray-500 mx-2">-</span>
-                    <span className="text-gray-400">{storyModalEntry?.blurb || `${storyModalEntry?.ending_type} ending`}</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-gray-400 text-sm w-20">Belonging</span>
-                      <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-500 rounded-full transition-all"
-                          style={{ width: `${storyModalEntry?.belonging_score || 0}%` }}
+              <DialogContent className="bg-gray-900 border-gray-700 max-w-2xl p-0 overflow-hidden">
+                <ScrollArea className="max-h-[85vh]">
+                  <div className="p-6 space-y-4">
+                    {storyModalEntry?.portrait_image_path && (
+                      <div className="w-full rounded-lg overflow-hidden -mt-2">
+                        <img
+                          src={storyModalEntry.portrait_image_path}
+                          alt="Journey portrait"
+                          className="w-full h-auto"
                         />
                       </div>
+                    )}
+                    <DialogHeader>
+                      <DialogTitle className="text-amber-400">
+                        {storyModalEntry?.player_name || 'Anonymous'} chose to stay in {storyModalEntry?.final_era}
+                      </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="text-gray-300">
+                      <span className="text-amber-400 font-bold text-lg">{storyModalEntry?.total} pts</span>
+                      <span className="text-gray-500 mx-2">-</span>
+                      <span className="text-gray-400">{storyModalEntry?.blurb || `${storyModalEntry?.ending_type} ending`}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-gray-400 text-sm w-20">Legacy</span>
-                      <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-500 rounded-full transition-all"
-                          style={{ width: `${storyModalEntry?.legacy_score || 0}%` }}
-                        />
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-400 text-sm w-20">Belonging</span>
+                        <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${storyModalEntry?.belonging_score || 0}%` }} />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-400 text-sm w-20">Legacy</span>
+                        <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${storyModalEntry?.legacy_score || 0}%` }} />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-400 text-sm w-20">Freedom</span>
+                        <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${storyModalEntry?.freedom_score || 0}%` }} />
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-gray-400 text-sm w-20">Freedom</span>
-                      <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-500 rounded-full transition-all"
-                          style={{ width: `${storyModalEntry?.freedom_score || 0}%` }}
-                        />
-                      </div>
+
+                    <div className="border-t border-gray-700 pt-4">
+                      <div
+                        className="text-gray-300 leading-relaxed pr-2 prose prose-invert prose-sm max-w-none prose-strong:text-amber-400 prose-p:my-2"
+                        dangerouslySetInnerHTML={{
+                          __html: (storyModalEntry?.historian_narrative || storyModalEntry?.ending_narrative || '')
+                            .replace(/^# (.+)$/gm, '<h3 class="text-amber-400 font-bold text-lg my-3">$1</h3>')
+                            .replace(/^---$/gm, '<hr class="border-gray-700 my-4" />')
+                            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                            .replace(/\n\n/g, '</p><p>')
+                            .replace(/^/, '<p>')
+                            .replace(/$/, '</p>')
+                        }}
+                      />
                     </div>
                   </div>
-                </div>
-
-                <div className="border-t border-gray-700 pt-4 flex-1 min-h-0">
-                  <ScrollArea className="h-full">
-                    <div
-                      className="text-gray-300 leading-relaxed pr-4 prose prose-invert prose-sm max-w-none prose-strong:text-amber-400 prose-p:my-2"
-                      dangerouslySetInnerHTML={{
-                        __html: (storyModalEntry?.historian_narrative || storyModalEntry?.ending_narrative || '')
-                          .replace(/^# (.+)$/gm, '<h3 class="text-amber-400 font-bold text-lg my-3">$1</h3>')
-                          .replace(/^---$/gm, '<hr class="border-gray-700 my-4" />')
-                          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                          .replace(/\n\n/g, '</p><p>')
-                          .replace(/^/, '<p>')
-                          .replace(/$/, '</p>')
-                      }}
-                    />
-                  </ScrollArea>
-                </div>
+                </ScrollArea>
               </DialogContent>
             </Dialog>
           </div>
