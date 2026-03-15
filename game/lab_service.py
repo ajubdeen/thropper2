@@ -186,6 +186,52 @@ def create_synthetic_snapshot(user_id: str, label: str, era_id: str,
     )
 
 
+def list_all_players() -> List[Dict[str, Any]]:
+    """List all registered users with their game counts."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT u.id, u.email, u.first_name, u.last_name,
+                       u.profile_image_url, u.created_at,
+                       COUNT(DISTINCT gs.game_id) AS save_count,
+                       COUNT(DISTINCT le.id) AS completed_count
+                FROM users u
+                LEFT JOIN game_saves gs ON gs.user_id = u.id
+                LEFT JOIN leaderboard_entries le ON le.user_id = u.id
+                GROUP BY u.id, u.email, u.first_name, u.last_name,
+                         u.profile_image_url, u.created_at
+                ORDER BY u.created_at DESC
+            """)
+            return [dict(r) for r in cur.fetchall()]
+
+
+def get_player_games(user_id: str) -> Dict[str, Any]:
+    """Get all saves and completed games for a specific player."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, email, first_name, last_name, profile_image_url, created_at
+                FROM users WHERE id = %s
+            """, (user_id,))
+            user = dict(cur.fetchone() or {})
+
+            cur.execute("""
+                SELECT game_id, player_name, current_era, phase, saved_at
+                FROM game_saves WHERE user_id = %s ORDER BY saved_at DESC
+            """, (user_id,))
+            saves = [dict(r) for r in cur.fetchall()]
+
+            cur.execute("""
+                SELECT id, player_name, total, final_era, ending_type,
+                       belonging_score, legacy_score, freedom_score,
+                       total_turns, created_at, portrait_image_path, blurb
+                FROM leaderboard_entries WHERE user_id = %s ORDER BY created_at DESC
+            """, (user_id,))
+            completed = [dict(r) for r in cur.fetchall()]
+
+            return {'user': user, 'saves': saves, 'completed': completed}
+
+
 def list_all_saves() -> List[Dict[str, Any]]:
     """List all players' saved games for import browsing."""
     with get_db() as conn:

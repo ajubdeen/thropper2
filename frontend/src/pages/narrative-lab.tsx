@@ -10,6 +10,7 @@ import GenerationHistory from "@/components/lab/generation-history";
 import QuickPlayPanel from "@/components/lab/quick-play-panel";
 import QuickPlayHistory from "@/components/lab/quickplay-history";
 import { ImageLab } from "@/components/lab/image-lab";
+import PlayersPanel from "@/components/lab/players-panel";
 
 
 export default function NarrativeLab() {
@@ -45,7 +46,7 @@ export default function NarrativeLab() {
       {/* Main content */}
       <div className="max-w-7xl mx-auto px-4 py-4">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-7">
+          <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="snapshots">Snapshots</TabsTrigger>
             <TabsTrigger value="generate">Generate</TabsTrigger>
             <TabsTrigger value="compare">Compare</TabsTrigger>
@@ -53,6 +54,7 @@ export default function NarrativeLab() {
             <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="quickplay">Quick Play</TabsTrigger>
             <TabsTrigger value="image-lab">Image Lab</TabsTrigger>
+            <TabsTrigger value="players">Players</TabsTrigger>
           </TabsList>
 
           <div className="mt-4">
@@ -144,6 +146,10 @@ export default function NarrativeLab() {
 
             <TabsContent value="image-lab">
               <ImageLab />
+            </TabsContent>
+
+            <TabsContent value="players">
+              <PlayersPanel />
             </TabsContent>
           </div>
         </Tabs>

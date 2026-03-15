@@ -200,6 +200,42 @@ def preview_snapshot_prompts(snapshot_id):
         return jsonify({'error': str(e)}), 500
 
 
+@lab.route('/players', methods=['GET'])
+@require_admin
+def list_all_players():
+    """List all registered players with game counts."""
+    try:
+        players = lab_service.list_all_players()
+        for p in players:
+            if p.get('created_at'):
+                p['created_at'] = format_datetime(p['created_at'])
+        return jsonify(players)
+    except Exception as e:
+        logger.error(f"List players error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@lab.route('/players/<user_id>/games', methods=['GET'])
+@require_admin
+def get_player_games(user_id):
+    """Get all saves and completed games for a player."""
+    try:
+        data = lab_service.get_player_games(user_id)
+        for key in ('created_at',):
+            if data['user'].get(key):
+                data['user'][key] = format_datetime(data['user'][key])
+        for s in data['saves']:
+            if s.get('saved_at'):
+                s['saved_at'] = format_datetime(s['saved_at'])
+        for c in data['completed']:
+            if c.get('created_at'):
+                c['created_at'] = format_datetime(c['created_at'])
+        return jsonify(data)
+    except Exception as e:
+        logger.error(f"Get player games error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @lab.route('/saves', methods=['GET'])
 @require_admin
 def list_all_saves():
