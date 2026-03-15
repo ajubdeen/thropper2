@@ -222,10 +222,13 @@ def get_player_games(user_id: str) -> Dict[str, Any]:
             saves = [dict(r) for r in cur.fetchall()]
 
             cur.execute("""
-                SELECT id, player_name, total, final_era, ending_type,
-                       belonging_score, legacy_score, freedom_score,
-                       total_turns, created_at, portrait_image_path, blurb
-                FROM leaderboard_entries WHERE user_id = %s ORDER BY created_at DESC
+                SELECT le.id, le.player_name, le.total_score AS total, le.final_era,
+                       le.ending_type, le.belonging_score, le.legacy_score, le.freedom_score,
+                       le.turns_survived AS total_turns, le.created_at, le.blurb,
+                       ae.portrait_image_path
+                FROM leaderboard_entries le
+                LEFT JOIN aoa_entries ae ON ae.game_id = le.game_id
+                WHERE le.user_id = %s ORDER BY le.created_at DESC
             """, (user_id,))
             completed = [dict(r) for r in cur.fetchall()]
 

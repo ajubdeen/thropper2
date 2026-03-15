@@ -66,8 +66,11 @@ export default function PlayersPanel() {
     enabled: !!selectedId,
   });
 
-  if (selectedId && detail) {
-    return <PlayerDetail data={detail} onBack={() => setSelectedId(null)} loading={detailLoading} />;
+  if (selectedId) {
+    if (detailLoading || !detail) {
+      return <p className="text-sm text-muted-foreground py-4">Loading...</p>;
+    }
+    return <PlayerDetail data={detail} onBack={() => setSelectedId(null)} loading={false} />;
   }
 
   return (
