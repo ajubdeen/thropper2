@@ -842,6 +842,7 @@ export default function GamePage() {
                     onClick={() => showLeaderboard(true)}
                     className="w-full mb-1 block cursor-pointer"
                   >
+                    <p className="text-xs text-amber-500/70 uppercase tracking-widest text-center mb-1">Leaderboard</p>
                     <p className="text-xs text-gray-500 uppercase tracking-widest text-center mb-2">Annals of Anachron</p>
                     <div className="relative aspect-[3/2] overflow-hidden rounded-lg">
                       <div

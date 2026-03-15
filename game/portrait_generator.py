@@ -14,6 +14,7 @@ import os
 import re
 import json
 import base64
+import random
 import logging
 from typing import Optional, Dict, Any
 
@@ -57,7 +58,7 @@ HISTORIAN NARRATIVE (third-person summary):
 
 Extract detailed visual scene information as JSON for a painted ensemble portrait in the style of a 1980s adventure movie poster.
 
-The composition: ultra-wide shot of a grand room. Central figure seated in an ornate armchair (ONLY person sitting). All others standing in a natural V-formation. The room/setting is 70% of the image with the people placed dramatically in the center. Extreme spotlight on the figures, the rest of the room in deep shadow.
+The composition: ultra-wide shot of a grand room. Central figure {central_pose}. All others standing in a natural V-formation. The room/setting is 70% of the image with the people placed dramatically in the center. Extreme spotlight on the figures, the rest of the room in deep shadow.
 
 IMPORTANT GUIDELINES:
 - Only include characters from the FINAL ERA narrative
@@ -68,9 +69,10 @@ IMPORTANT GUIDELINES:
 - Setting: their SPECIFIC achievement (restaurant, farm, workshop — not generic backdrop)
 - Include 2-3 journey artifacts as props
 - Keep room description minimal (it will be mostly in shadow)
+- central_pose field: use exactly the pose string provided above in the composition description
 
 Return ONLY a JSON object (no markdown, no explanation) with these keys:
-- central_figure: {{name, age_appearance, clothing, expression}} (1-2 sentences each)
+- central_figure: {{name, age_appearance, clothing, expression, pose}} (1-2 sentences each; pose = "seated" or "standing")
 - characters: array of max 7, each with {{name, relationship, appearance, clothing, expression}} (1 sentence each)
 - setting: {{city, era_decade, architecture, key_artifact_on_wall, windows_view}}
 - objects: array of 2-3 short strings describing props
@@ -113,15 +115,16 @@ The architecture dominates the frame — 70-75% of the image is room and backgro
 The figures occupy the center but are dwarfed by the vast space around them.
 Floor visible.
 Ceiling visible in shadow.
-One central seated figure in ornate chair at exact center.
-Only one person seated.
-All others stand behind in loose V-formation.
+Central figure pose: see CENTRAL FIGURE section below.
+If the central figure is seated, only they are seated — all others stand.
+If the central figure is standing, everyone stands.
+All others arranged in loose V-formation behind or beside the central figure.
 Heights varied naturally.
 Everyone faces generally forward.
 
 MOOD:
 Confident. Warm. Dignified. Proud.
-Chins raised. Shoulders back. Strong posture.
+Chins raised. Shoulders back. Strong posture whether seated or standing.
 Expressions convey quiet pride and satisfaction — not sadness, not fatigue, not weariness.
 Some characters may have the faintest hint of a warm smile.
 Central figure: strong, composed, serene confidence with warmth in the eyes. Maximum age 50. Not elderly. Not frail. Strong and vital with distinguished silver-touched hair.
@@ -136,11 +139,26 @@ def extract_scene(aoa_data: dict) -> Optional[dict]:
         logger.warning("Anthropic SDK not available, cannot extract scene")
         return None
 
+    # Determine pose: 50/50 standing vs seated.
+    # Only use "ornate armchair" if the era/narrative suggests nobility/royalty; otherwise use
+    # a contextually appropriate seat (workbench stool, tavern chair, simple wooden chair, etc.)
+    ending_type = aoa_data.get('ending_type', 'balanced')
+    final_era = aoa_data.get('final_era', '')
+    is_royalty_context = any(k in (final_era + ending_type).lower()
+                             for k in ('royal', 'king', 'queen', 'emperor', 'court', 'noble', 'palace'))
+    if random.random() < 0.5:
+        if is_royalty_context:
+            central_pose = "seated in an ornate throne-like armchair at exact center (ONLY person sitting)"
+        else:
+            central_pose = "seated in a contextually appropriate chair at exact center — matching the setting (e.g. a craftsman's stool, tavern chair, or simple wooden seat — NOT an ornate armchair unless the setting demands it) (ONLY person sitting)"
+    else:
+        central_pose = "standing tall at exact center (NO one is seated)"
+
     prompt = SCENE_EXTRACTION_PROMPT.format(
-        final_era=aoa_data.get('final_era', 'Unknown'),
+        final_era=final_era,
         final_era_year=aoa_data.get('final_era_year', 'Unknown'),
         character_name=aoa_data.get('character_name', 'The Traveler'),
-        ending_type=aoa_data.get('ending_type', 'balanced'),
+        ending_type=ending_type,
         belonging_score=aoa_data.get('belonging_score', 0),
         legacy_score=aoa_data.get('legacy_score', 0),
         freedom_score=aoa_data.get('freedom_score', 0),
@@ -148,6 +166,7 @@ def extract_scene(aoa_data: dict) -> Optional[dict]:
         items_used=', '.join(aoa_data.get('items_used', [])) if isinstance(aoa_data.get('items_used'), list) else str(aoa_data.get('items_used', '[]')),
         player_narrative=aoa_data.get('player_narrative', ''),
         historian_narrative=aoa_data.get('historian_narrative', ''),
+        central_pose=central_pose,
     )
 
     try:
@@ -191,9 +210,12 @@ def build_scene_blocks(scene: dict) -> str:
         parts.append(f"\nROOM DETAILS:\n{'. '.join(room_bits)}.")
 
     cf = scene.get('central_figure', {})
+    pose = cf.get('pose', 'standing')
+    pose_desc = "Seated." if pose == 'seated' else "Standing tall."
     parts.append(f"\nCENTRAL FIGURE:\n{cf.get('name', 'The protagonist')}, "
                  f"{cf.get('age_appearance', 'weathered figure')}. "
-                 f"{cf.get('clothing', 'Era-appropriate clothing')}.")
+                 f"{cf.get('clothing', 'Era-appropriate clothing')}. "
+                 f"{pose_desc}")
 
     characters = scene.get('characters', [])
     if characters:
