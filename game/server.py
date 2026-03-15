@@ -86,7 +86,9 @@ socketio = SocketIO(
 @app.route('/')
 def serve_index():
     """Serve the React app's index.html."""
-    return send_from_directory(STATIC_DIR, 'index.html')
+    response = send_from_directory(STATIC_DIR, 'index.html')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
 
 
 @app.route('/portraits/<path:filename>')
@@ -98,12 +100,13 @@ def serve_portrait(filename):
 @app.route('/<path:path>')
 def serve_static(path):
     """Serve static files, falling back to index.html for SPA routing."""
-    # Try to serve the file directly
     file_path = os.path.join(STATIC_DIR, path)
     if os.path.isfile(file_path):
         return send_from_directory(STATIC_DIR, path)
-    # Fall back to index.html for SPA routing
-    return send_from_directory(STATIC_DIR, 'index.html')
+    # Fall back to index.html — no-cache so browser always fetches the latest bundle
+    response = send_from_directory(STATIC_DIR, 'index.html')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
 
 from game_api import GameSession
 
