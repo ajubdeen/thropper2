@@ -879,6 +879,14 @@ export default function GamePage() {
                     </div>
                   </button>
                 )}
+                <a
+                  href="https://docs.google.com/forms/d/1xb14xdc1_VkKYOd_YWyveGH4X7QdYIHd3uajiaUsWQA/viewform"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center text-xs text-gray-500 hover:text-amber-400 underline underline-offset-2 pt-3"
+                >
+                  Give feedback
+                </a>
               </div>
             </div>
           </div>
@@ -970,6 +978,15 @@ export default function GamePage() {
               </div>
             </ScrollArea>
             
+            <a
+              href="https://docs.google.com/forms/d/1xb14xdc1_VkKYOd_YWyveGH4X7QdYIHd3uajiaUsWQA/viewform"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center text-sm text-amber-500 hover:text-amber-400 underline underline-offset-2 pt-3 pb-1"
+            >
+              Share your feedback — help us improve Anachron
+            </a>
+
             <Dialog open={!!storyModalEntry} onOpenChange={(open) => !open && setStoryModalEntry(null)}>
               <DialogContent className="bg-gray-900 border-gray-700 max-w-2xl p-0 overflow-hidden">
                 <div className="overflow-y-auto max-h-[85vh]">
@@ -1339,6 +1356,15 @@ export default function GamePage() {
               >
                 Play Again
               </Button>
+
+              <a
+                href="https://docs.google.com/forms/d/1xb14xdc1_VkKYOd_YWyveGH4X7QdYIHd3uajiaUsWQA/viewform"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-center text-sm text-amber-500 hover:text-amber-400 underline underline-offset-2"
+              >
+                Share your feedback — help us improve Anachron
+              </a>
 
               {finalScore && (
                 <Card className="bg-gray-900 border-gray-700">
